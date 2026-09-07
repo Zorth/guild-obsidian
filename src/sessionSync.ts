@@ -1,6 +1,7 @@
 import { TFile, Notice } from 'obsidian';
 import GuildObsidianPlugin from './main';
 import { GuildApiClient, GuildSession, GuildWorld } from './api';
+import { createNoteFromTemplate } from './templateUtils';
 
 export interface SyncResult {
 	created: number;
@@ -167,22 +168,12 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 			});
 			updatedCount++;
 		} else {
-			// New File: Check for Template File
-			let initialContent = '';
-			if (plugin.settings.templateFilePath.trim()) {
-				const templateFile = plugin.app.vault.getAbstractFileByPath(plugin.settings.templateFilePath.trim());
-				if (templateFile instanceof TFile) {
-					initialContent = await plugin.app.vault.read(templateFile);
-				}
-			}
-
-			// Create file with initial content/template body
-			const newFile = await plugin.app.vault.create(filePath, initialContent);
-			
-			// Inject frontmatter cleanly
-			await plugin.app.fileManager.processFrontMatter(newFile, (fm) => {
-				Object.assign(fm, frontmatterProps);
-			});
+			await createNoteFromTemplate(
+				plugin.app,
+				filePath,
+				plugin.settings.templateFilePath,
+				frontmatterProps
+			);
 			createdCount++;
 		}
 	}
