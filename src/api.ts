@@ -11,6 +11,9 @@ export interface GuildSession {
 	location?: string;
 	planning?: string;
 	worldId?: string;
+	world_id?: string;
+	worldName?: string;
+	world?: string | { _id?: string; name?: string };
 	attendingCharacters?: string[];
 	gmCharacterId?: string;
 }

@@ -3,6 +3,7 @@ import GuildObsidianPlugin from './main';
 import { GuildApiClient, GuildWorld } from './api';
 import { syncSessions } from './sessionSync';
 import { syncCharacters } from './characterSync';
+import { FolderSuggest, FileSuggest } from './suggest';
 
 export interface GuildObsidianSettings {
 	apiUrl: string;
@@ -168,13 +169,16 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Sessions Folder')
 			.setDesc('Vault folder where session notes will be created/updated.')
-			.addText(text => text
-				.setPlaceholder('Sessions')
-				.setValue(this.plugin.settings.sessionsFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.sessionsFolder = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				text
+					.setPlaceholder('Sessions')
+					.setValue(this.plugin.settings.sessionsFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.sessionsFolder = value;
+						await this.plugin.saveSettings();
+					});
+				new FolderSuggest(this.app, text.inputEl);
+			});
 
 		new Setting(containerEl)
 			.setName('Session Filename Format')
@@ -190,13 +194,16 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Session Template Note')
 			.setDesc('Path to template file for new session notes (e.g. Templates/Session Template.md).')
-			.addText(text => text
-				.setPlaceholder('Templates/Session Template.md')
-				.setValue(this.plugin.settings.templateFilePath)
-				.onChange(async (value) => {
-					this.plugin.settings.templateFilePath = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				text
+					.setPlaceholder('Templates/Session Template.md')
+					.setValue(this.plugin.settings.templateFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.templateFilePath = value;
+						await this.plugin.saveSettings();
+					});
+				new FileSuggest(this.app, text.inputEl);
+			});
 
 		new Setting(containerEl)
 			.setName('Sync Sessions Now')
@@ -283,13 +290,16 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Characters Folder')
 			.setDesc('Vault folder where character notes will be created/updated.')
-			.addText(text => text
-				.setPlaceholder('Characters')
-				.setValue(this.plugin.settings.charactersFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.charactersFolder = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				text
+					.setPlaceholder('Characters')
+					.setValue(this.plugin.settings.charactersFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.charactersFolder = value;
+						await this.plugin.saveSettings();
+					});
+				new FolderSuggest(this.app, text.inputEl);
+			});
 
 		new Setting(containerEl)
 			.setName('Character Filename Format')
@@ -305,13 +315,16 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Character Template Note')
 			.setDesc('Path to template file for new character notes (e.g. Templates/Character Template.md).')
-			.addText(text => text
-				.setPlaceholder('Templates/Character Template.md')
-				.setValue(this.plugin.settings.characterTemplateFilePath)
-				.onChange(async (value) => {
-					this.plugin.settings.characterTemplateFilePath = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				text
+					.setPlaceholder('Templates/Character Template.md')
+					.setValue(this.plugin.settings.characterTemplateFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.characterTemplateFilePath = value;
+						await this.plugin.saveSettings();
+					});
+				new FileSuggest(this.app, text.inputEl);
+			});
 
 		new Setting(containerEl)
 			.setName('Sync Characters Now')

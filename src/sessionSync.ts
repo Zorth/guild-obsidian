@@ -20,7 +20,16 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 	}
 
 	const worldMap = new Map<string, string>();
-	worlds.forEach(w => worldMap.set(w._id, w.name));
+	worlds.forEach(w => {
+		if (w._id) {
+			worldMap.set(w._id, w.name);
+			worldMap.set(w._id.toLowerCase(), w.name);
+		}
+		if (w.name) {
+			worldMap.set(w.name, w.name);
+			worldMap.set(w.name.toLowerCase(), w.name);
+		}
+	});
 
 	// Fetch Sessions (both upcoming and past)
 	let upcomingSessions: GuildSession[] = [];
@@ -59,7 +68,35 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 	let updatedCount = 0;
 
 	for (const session of sessions) {
-		const worldName = session.worldId ? (worldMap.get(session.worldId) || 'Unknown World') : 'General';
+		// Determine raw world identifier from session or settings fallback
+		let rawWorld: string | undefined = undefined;
+
+		if (typeof session.worldName === 'string' && session.worldName.trim()) {
+			rawWorld = session.worldName.trim();
+		} else if (typeof session.worldId === 'string' && session.worldId.trim()) {
+			rawWorld = session.worldId.trim();
+		} else if (typeof session.world_id === 'string' && session.world_id.trim()) {
+			rawWorld = session.world_id.trim();
+		} else if (typeof session.world === 'string' && session.world.trim()) {
+			rawWorld = session.world.trim();
+		} else if (typeof session.world === 'object' && session.world !== null) {
+			const wObj = session.world as { _id?: string; name?: string };
+			rawWorld = wObj.name || wObj._id;
+		}
+
+		if (!rawWorld && plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
+			rawWorld = plugin.settings.selectedWorldId;
+		}
+
+		let worldName = 'General';
+		if (rawWorld) {
+			const mapped = worldMap.get(rawWorld) || worldMap.get(rawWorld.toLowerCase());
+			if (mapped) {
+				worldName = mapped;
+			} else {
+				worldName = rawWorld.replace(/\b\w/g, c => c.toUpperCase());
+			}
+		}
 		
 		// Date formatting
 		const rawDate = session.date || session.startDate;
@@ -110,14 +147,14 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 			[plugin.settings.playersPropertyKey]: playerWikilinks,
 		};
 
-		if (session.startDate) {
-			frontmatterProps[plugin.settings.startDatePropertyKey] = session.startDate;
-		} else if (session.date) {
-			frontmatterProps[plugin.settings.startDatePropertyKey] = session.date;
+		const startDateValue = session.startDate || session.date;
+		if (startDateValue) {
+			frontmatterProps[plugin.settings.startDatePropertyKey] = startDateValue;
 		}
 
-		if (session.endDate) {
-			frontmatterProps[plugin.settings.endDatePropertyKey] = session.endDate;
+		const endDateValue = session.endDate || startDateValue;
+		if (endDateValue) {
+			frontmatterProps[plugin.settings.endDatePropertyKey] = endDateValue;
 		}
 
 		// Sync Note
