@@ -3,6 +3,7 @@ import { GuildObsidianSettings, DEFAULT_SETTINGS, GuildObsidianSettingTab } from
 import { GuildView, GUILD_VIEW_TYPE } from './views/GuildView';
 import { GuildApiClient } from './api';
 import { syncSessions } from './sessionSync';
+import { syncCharacters } from './characterSync';
 
 export default class GuildObsidianPlugin extends Plugin {
 	settings: GuildObsidianSettings;
@@ -40,6 +41,14 @@ export default class GuildObsidianPlugin extends Plugin {
 			name: 'Sync Session Notes',
 			callback: async () => {
 				await syncSessions(this);
+			}
+		});
+
+		this.addCommand({
+			id: 'guild-sync-characters',
+			name: 'Sync Character Notes',
+			callback: async () => {
+				await syncCharacters(this);
 			}
 		});
 

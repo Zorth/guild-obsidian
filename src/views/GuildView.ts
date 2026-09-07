@@ -2,6 +2,7 @@ import { ItemView, WorkspaceLeaf, Notice, TFile } from 'obsidian';
 import GuildObsidianPlugin from '../main';
 import { GuildApiClient, GuildWorld, GuildQuest, GuildCharacter, GuildSession, GuildBlackVoidListing } from '../api';
 import { syncSessions } from '../sessionSync';
+import { syncCharacters } from '../characterSync';
 
 export const GUILD_VIEW_TYPE = 'guild-sidebar-view';
 
@@ -120,6 +121,11 @@ export class GuildView extends ItemView {
 	}
 
 	private async renderCharacters(container: HTMLElement, client: GuildApiClient) {
+		const syncBtn = container.createEl('button', { text: '🔄 Sync All Characters to Vault', cls: 'guild-sync-btn' });
+		syncBtn.addEventListener('click', async () => {
+			await syncCharacters(this.plugin);
+		});
+
 		const characters = await client.getCharacters();
 		container.createEl('h5', { text: `Characters (${characters.length})` });
 

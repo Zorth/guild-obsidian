@@ -2,24 +2,45 @@ import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import GuildObsidianPlugin from './main';
 import { GuildApiClient, GuildWorld } from './api';
 import { syncSessions } from './sessionSync';
+import { syncCharacters } from './characterSync';
 
 export interface GuildObsidianSettings {
 	apiUrl: string;
 	apiKey: string;
 
-	// Session Sync Settings
+	// Campaign World
 	selectedWorldId: string;
+
+	// Session Sync Settings
 	sessionsFolder: string;
 	filenameFormat: string;
 	templateFilePath: string;
 
-	// Configurable Property Keys
+	// Configurable Session Property Keys
 	playersPropertyKey: string;
 	startDatePropertyKey: string;
 	endDatePropertyKey: string;
 	sessionIdPropertyKey: string;
 	worldPropertyKey: string;
 	systemPropertyKey: string;
+
+	// Character Sync Settings
+	charactersFolder: string;
+	characterFilenameFormat: string;
+	characterTemplateFilePath: string;
+
+	// Configurable Character Property Keys
+	characterIdPropertyKey: string;
+	characterNamePropertyKey: string;
+	characterLevelPropertyKey: string;
+	characterXpPropertyKey: string;
+	characterClassPropertyKey: string;
+	characterAncestryPropertyKey: string;
+	characterSystemPropertyKey: string;
+	characterRankPropertyKey: string;
+	characterWebsiteLinkPropertyKey: string;
+	characterUserIdPropertyKey: string;
+	characterReputationPropertyKey: string;
 }
 
 export const DEFAULT_SETTINGS: GuildObsidianSettings = {
@@ -27,6 +48,8 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 	apiKey: '',
 
 	selectedWorldId: 'ALL',
+
+	// Sessions
 	sessionsFolder: 'Sessions',
 	filenameFormat: '{date} {world}',
 	templateFilePath: '',
@@ -36,7 +59,24 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 	endDatePropertyKey: 'endDate',
 	sessionIdPropertyKey: 'guild_session_id',
 	worldPropertyKey: 'world',
-	systemPropertyKey: 'system'
+	systemPropertyKey: 'system',
+
+	// Characters
+	charactersFolder: 'Characters',
+	characterFilenameFormat: '{name}',
+	characterTemplateFilePath: '',
+
+	characterIdPropertyKey: 'guild_character_id',
+	characterNamePropertyKey: 'name',
+	characterLevelPropertyKey: 'level',
+	characterXpPropertyKey: 'xp',
+	characterClassPropertyKey: 'class',
+	characterAncestryPropertyKey: 'ancestry',
+	characterSystemPropertyKey: 'system',
+	characterRankPropertyKey: 'rank',
+	characterWebsiteLinkPropertyKey: 'websiteLink',
+	characterUserIdPropertyKey: 'userId',
+	characterReputationPropertyKey: 'reputation'
 };
 
 export class GuildObsidianSettingTab extends PluginSettingTab {
@@ -97,21 +137,19 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 					}
 				}));
 
-		// --- Session Sync Settings ---
-		containerEl.createEl('h3', { text: 'Session Synchronization Settings' });
+		// --- Campaign World Selection ---
+		containerEl.createEl('h3', { text: 'Campaign World' });
 
-		// World Selection Dropdown
 		const worldSetting = new Setting(containerEl)
 			.setName('Select Campaign World')
-			.setDesc('Select a world to sync sessions for, or select ALL to sync sessions across all campaign worlds.');
+			.setDesc('Select a campaign world for session and reputation synchronization, or ALL for all worlds.');
 
-		// Fetch worlds for dropdown
 		let worlds: GuildWorld[] = [];
 		try {
 			const client = new GuildApiClient(this.plugin.settings.apiUrl, this.plugin.settings.apiKey);
 			worlds = await client.getWorlds();
 		} catch {
-			// API not connected or offline
+			// API offline or not set
 		}
 
 		worldSetting.addDropdown(dropdown => {
@@ -123,6 +161,9 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 			});
 		});
+
+		// --- Session Sync Settings ---
+		containerEl.createEl('h3', { text: 'Session Synchronization Settings' });
 
 		new Setting(containerEl)
 			.setName('Sessions Folder')
@@ -136,8 +177,8 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Filename Format')
-			.setDesc('Pattern for session note filenames. Placeholders: {date} (or YYYY-MM-DD), {world} (or WORLDNAME), {system}, {id}.')
+			.setName('Session Filename Format')
+			.setDesc('Pattern for session note filenames. Placeholders: {date}, {world}, {system}, {id}.')
 			.addText(text => text
 				.setPlaceholder('{date} {world}')
 				.setValue(this.plugin.settings.filenameFormat)
@@ -148,7 +189,7 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Session Template Note')
-			.setDesc('Path to template file (e.g. Templates/Session Template.md). Used for newly created notes. Templater compatible.')
+			.setDesc('Path to template file for new session notes (e.g. Templates/Session Template.md).')
 			.addText(text => text
 				.setPlaceholder('Templates/Session Template.md')
 				.setValue(this.plugin.settings.templateFilePath)
@@ -159,21 +200,20 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Sync Sessions Now')
-			.setDesc('Fetch sessions from Guild API and update/create local session notes in your vault.')
+			.setDesc('Fetch sessions from Guild API and update/create local session notes.')
 			.addButton(button => button
-				.setButtonText('🔄 Refresh / Sync Sessions')
+				.setButtonText('🔄 Sync Sessions')
 				.setCta()
 				.onClick(async () => {
 					await syncSessions(this.plugin);
 				}));
 
-		// --- Configurable Property Keys ---
-		containerEl.createEl('h3', { text: 'Configurable Frontmatter Property Keys' });
-		containerEl.createEl('p', { text: 'Customize the frontmatter property names written to session notes.', cls: 'setting-item-description' });
+		// Configurable Session Frontmatter Property Keys
+		containerEl.createEl('h4', { text: 'Session Property Mappings' });
 
 		new Setting(containerEl)
 			.setName('Players Field Key')
-			.setDesc('Property name for attending players list (formatted as wikilinks).')
+			.setDesc('Property for attending players (wikilinks).')
 			.addText(text => text
 				.setPlaceholder('players')
 				.setValue(this.plugin.settings.playersPropertyKey)
@@ -184,7 +224,7 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Start Date Field Key')
-			.setDesc('Property name for session start date / calendar date.')
+			.setDesc('Property for session start date / calendar date.')
 			.addText(text => text
 				.setPlaceholder('startDate')
 				.setValue(this.plugin.settings.startDatePropertyKey)
@@ -195,7 +235,7 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('End Date Field Key')
-			.setDesc('Property name for session end date.')
+			.setDesc('Property for session end date.')
 			.addText(text => text
 				.setPlaceholder('endDate')
 				.setValue(this.plugin.settings.endDatePropertyKey)
@@ -206,7 +246,7 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Session ID Field Key')
-			.setDesc('Property name for Guild Session ID.')
+			.setDesc('Property for Guild Session ID.')
 			.addText(text => text
 				.setPlaceholder('guild_session_id')
 				.setValue(this.plugin.settings.sessionIdPropertyKey)
@@ -217,7 +257,7 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('World Field Key')
-			.setDesc('Property name for Campaign World.')
+			.setDesc('Property for Campaign World.')
 			.addText(text => text
 				.setPlaceholder('world')
 				.setValue(this.plugin.settings.worldPropertyKey)
@@ -228,12 +268,182 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('System Field Key')
-			.setDesc('Property name for Game System (PF / DnD).')
+			.setDesc('Property for Game System.')
 			.addText(text => text
 				.setPlaceholder('system')
 				.setValue(this.plugin.settings.systemPropertyKey)
 				.onChange(async (value) => {
 					this.plugin.settings.systemPropertyKey = value.trim() || 'system';
+					await this.plugin.saveSettings();
+				}));
+
+		// --- Character Sync Settings ---
+		containerEl.createEl('h3', { text: 'Character Synchronization Settings' });
+
+		new Setting(containerEl)
+			.setName('Characters Folder')
+			.setDesc('Vault folder where character notes will be created/updated.')
+			.addText(text => text
+				.setPlaceholder('Characters')
+				.setValue(this.plugin.settings.charactersFolder)
+				.onChange(async (value) => {
+					this.plugin.settings.charactersFolder = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Character Filename Format')
+			.setDesc('Pattern for character note filenames. Placeholders: {name}, {id}, {lvl}, {class}, {ancestry}, {system}, {rank}.')
+			.addText(text => text
+				.setPlaceholder('{name}')
+				.setValue(this.plugin.settings.characterFilenameFormat)
+				.onChange(async (value) => {
+					this.plugin.settings.characterFilenameFormat = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Character Template Note')
+			.setDesc('Path to template file for new character notes (e.g. Templates/Character Template.md).')
+			.addText(text => text
+				.setPlaceholder('Templates/Character Template.md')
+				.setValue(this.plugin.settings.characterTemplateFilePath)
+				.onChange(async (value) => {
+					this.plugin.settings.characterTemplateFilePath = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Sync Characters Now')
+			.setDesc('Fetch characters & world reputation from Guild API and update/create local character notes.')
+			.addButton(button => button
+				.setButtonText('🔄 Sync Characters')
+				.setCta()
+				.onClick(async () => {
+					await syncCharacters(this.plugin);
+				}));
+
+		// Configurable Character Frontmatter Property Keys
+		containerEl.createEl('h4', { text: 'Character Property Mappings' });
+
+		new Setting(containerEl)
+			.setName('Character ID Field Key')
+			.setDesc('Property for Guild Character ID.')
+			.addText(text => text
+				.setPlaceholder('guild_character_id')
+				.setValue(this.plugin.settings.characterIdPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterIdPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Name Field Key')
+			.setDesc('Property for Character Name.')
+			.addText(text => text
+				.setPlaceholder('name')
+				.setValue(this.plugin.settings.characterNamePropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterNamePropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Level Field Key')
+			.setDesc('Property for Character Level.')
+			.addText(text => text
+				.setPlaceholder('level')
+				.setValue(this.plugin.settings.characterLevelPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterLevelPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('XP Field Key')
+			.setDesc('Property for Character Experience Points.')
+			.addText(text => text
+				.setPlaceholder('xp')
+				.setValue(this.plugin.settings.characterXpPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterXpPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Class Field Key')
+			.setDesc('Property for Character Class.')
+			.addText(text => text
+				.setPlaceholder('class')
+				.setValue(this.plugin.settings.characterClassPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterClassPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Ancestry Field Key')
+			.setDesc('Property for Character Ancestry.')
+			.addText(text => text
+				.setPlaceholder('ancestry')
+				.setValue(this.plugin.settings.characterAncestryPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterAncestryPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('System Field Key')
+			.setDesc('Property for Game System.')
+			.addText(text => text
+				.setPlaceholder('system')
+				.setValue(this.plugin.settings.characterSystemPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterSystemPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Rank Field Key')
+			.setDesc('Property for Guild Rank.')
+			.addText(text => text
+				.setPlaceholder('rank')
+				.setValue(this.plugin.settings.characterRankPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterRankPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Website Link Field Key')
+			.setDesc('Property for Character Website URL.')
+			.addText(text => text
+				.setPlaceholder('websiteLink')
+				.setValue(this.plugin.settings.characterWebsiteLinkPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterWebsiteLinkPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('User ID Field Key')
+			.setDesc('Property for User ID.')
+			.addText(text => text
+				.setPlaceholder('userId')
+				.setValue(this.plugin.settings.characterUserIdPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterUserIdPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Reputation Field Key')
+			.setDesc('Property for World Faction Reputation Scores object.')
+			.addText(text => text
+				.setPlaceholder('reputation')
+				.setValue(this.plugin.settings.characterReputationPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterReputationPropertyKey = value.trim();
 					await this.plugin.saveSettings();
 				}));
 	}

@@ -72,6 +72,14 @@ export interface GuildActivity {
 	type?: string;
 }
 
+export interface GuildReputationEntry {
+	characterId?: string;
+	factionName?: string;
+	score?: number;
+	delta?: number;
+	[key: string]: unknown;
+}
+
 export class GuildApiClient {
 	private baseUrl: string;
 	private apiKey: string;
@@ -162,6 +170,11 @@ export class GuildApiClient {
 
 	async updateQuest(questId: string, data: Partial<GuildQuest>): Promise<GuildQuest> {
 		return this.request<GuildQuest>(`/quest/${questId}`, 'PATCH', data);
+	}
+
+	// --- Reputation ---
+	async getWorldReputation(worldId: string): Promise<unknown> {
+		return this.request<unknown>(`/world/${worldId}/reputation`);
 	}
 
 	// --- The Black Void ---
