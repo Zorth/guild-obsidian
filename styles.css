@@ -1,0 +1,92 @@
+/* Guild Obsidian Plugin Styles */
+
+.guild-obsidian-status-bar {
+	font-weight: 500;
+	color: var(--text-muted);
+}
+
+.guild-view-container {
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.guild-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding-bottom: 8px;
+}
+
+.guild-header h4 {
+	margin: 0;
+}
+
+.guild-nav-tabs {
+	display: flex;
+	gap: 4px;
+	flex-wrap: wrap;
+}
+
+.guild-nav-tabs button {
+	padding: 4px 8px;
+	font-size: 0.8em;
+	cursor: pointer;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+}
+
+.guild-nav-tabs button.guild-tab-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+.guild-tab-content {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.guild-card-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.guild-card {
+	padding: 10px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+}
+
+.guild-card p {
+	margin: 4px 0;
+	font-size: 0.9em;
+}
+
+.guild-card small {
+	color: var(--text-muted);
+}
+
+.guild-badge-completed {
+	color: var(--text-success);
+	font-weight: bold;
+}
+
+.guild-import-btn {
+	margin-top: 6px;
+	font-size: 0.8em;
+	width: 100%;
+}
+
+.guild-error {
+	color: var(--text-error);
+	padding: 8px;
+	background: var(--background-modifier-error);
+	border-radius: 4px;
+}

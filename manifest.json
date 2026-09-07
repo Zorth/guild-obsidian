@@ -1,0 +1,10 @@
+{
+  "id": "guild-obsidian",
+  "name": "Guild Obsidian",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Obsidian plugin for Guild integration.",
+  "author": "Zorth",
+  "authorUrl": "https://zorth.eu",
+  "isDesktopOnly": false
+}
