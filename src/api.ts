@@ -29,6 +29,9 @@ export interface GuildCharacter {
 	userId?: string;
 	rank?: string;
 	websiteLink?: string;
+	reputation?: any;
+	reputations?: any;
+	factions?: any;
 }
 
 export interface GuildWorld {

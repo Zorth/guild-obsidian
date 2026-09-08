@@ -113,11 +113,17 @@ export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<Chara
 			frontmatterProps[plugin.settings.characterUserIdPropertyKey] = character.userId;
 		}
 
-		// Reputation mapping
-		const reputationObj = characterReputationMap.get(character._id);
-		if (reputationObj && Object.keys(reputationObj).length > 0 && plugin.settings.characterReputationPropertyKey) {
-			frontmatterProps[plugin.settings.characterReputationPropertyKey] = reputationObj;
-		}
+		// Reputation mapping: combine character payload reputation with world reputation API data
+		const repFromChar = extractCharacterReputation(character);
+		const repFromMap = characterReputationMap.get(character._id) || {};
+		const mergedRep = { ...repFromChar, ...repFromMap };
+
+		// Add reputation fields directly as top-level frontmatter properties (no leading 2 spaces / nested object)
+		Object.entries(mergedRep).forEach(([factionName, score]) => {
+			if (factionName && typeof score === 'number') {
+				frontmatterProps[factionName] = score;
+			}
+		});
 
 		// Sync Note
 		let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
@@ -144,32 +150,101 @@ export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<Chara
 	return { created: createdCount, updated: updatedCount, total };
 }
 
+function extractCharacterReputation(character: GuildCharacter): Record<string, number> {
+	const result: Record<string, number> = {};
+	const rawRep = character.reputation || character.reputations || character.factions;
+	if (!rawRep) return result;
+
+	if (Array.isArray(rawRep)) {
+		rawRep.forEach(item => {
+			if (typeof item === 'object' && item !== null) {
+				const name = (item.factionName || item.faction_name || item.faction || item.name || item.title) as string | undefined;
+				const val = getNumericValue(item as Record<string, unknown>, ['score', 'value', 'amount', 'points', 'delta', 'reputation']);
+				if (name && val !== undefined) {
+					result[name] = val;
+				}
+			}
+		});
+	} else if (typeof rawRep === 'object') {
+		Object.entries(rawRep as Record<string, unknown>).forEach(([key, val]) => {
+			if (typeof val === 'number') {
+				result[key] = val;
+			} else if (typeof val === 'string' && !isNaN(Number(val))) {
+				result[key] = Number(val);
+			} else if (typeof val === 'object' && val !== null) {
+				const numVal = getNumericValue(val as Record<string, unknown>, ['score', 'value', 'amount', 'points', 'delta', 'reputation']);
+				if (numVal !== undefined) {
+					result[key] = numVal;
+				}
+			}
+		});
+	}
+	return result;
+}
+
 function parseReputationData(data: unknown, map: Map<string, Record<string, number>>) {
 	if (!data) return;
 
 	if (Array.isArray(data)) {
 		data.forEach((entry: unknown) => {
 			if (typeof entry === 'object' && entry !== null) {
-				const e = entry as { characterId?: string; factionName?: string; score?: number; delta?: number };
-				if (e.characterId && e.factionName) {
-					const charRep = map.get(e.characterId) || {};
-					charRep[e.factionName] = e.score ?? e.delta ?? 0;
-					map.set(e.characterId, charRep);
+				const e = entry as Record<string, unknown>;
+				const charId = (e.characterId || e.character_id || e.character || e.charId || e.userId || e.user_id) as string | undefined;
+				const faction = (e.factionName || e.faction_name || e.faction || e.name || e.title || e.factionId || e.faction_id) as string | undefined;
+				const val = getNumericValue(e, ['score', 'value', 'amount', 'points', 'delta', 'reputation', 'count']);
+
+				if (charId && faction && val !== undefined) {
+					const charRep = map.get(charId) || {};
+					charRep[faction] = val;
+					map.set(charId, charRep);
 				}
 			}
 		});
 	} else if (typeof data === 'object') {
-		// Could be a nested map { [characterId]: { [factionName]: score } }
-		Object.entries(data as Record<string, unknown>).forEach(([charId, value]) => {
-			if (typeof value === 'object' && value !== null) {
-				const charRep = map.get(charId) || {};
-				Object.entries(value as Record<string, unknown>).forEach(([faction, score]) => {
-					if (typeof score === 'number') {
-						charRep[faction] = score;
-					}
-				});
-				map.set(charId, charRep);
+		Object.entries(data as Record<string, unknown>).forEach(([key1, val1]) => {
+			if (typeof val1 === 'object' && val1 !== null) {
+				if (Array.isArray(val1)) {
+					val1.forEach(item => {
+						if (typeof item === 'object' && item !== null) {
+							const faction = (item.factionName || item.faction_name || item.faction || item.name) as string | undefined;
+							const num = getNumericValue(item as Record<string, unknown>, ['score', 'value', 'amount', 'points', 'delta']);
+							if (faction && num !== undefined) {
+								const charRep = map.get(key1) || {};
+								charRep[faction] = num;
+								map.set(key1, charRep);
+							}
+						}
+					});
+				} else {
+					Object.entries(val1 as Record<string, unknown>).forEach(([key2, val2]) => {
+						if (typeof val2 === 'number') {
+							const charRep = map.get(key1) || {};
+							charRep[key2] = val2;
+							map.set(key1, charRep);
+						} else if (typeof val2 === 'string' && !isNaN(Number(val2))) {
+							const charRep = map.get(key1) || {};
+							charRep[key2] = Number(val2);
+							map.set(key1, charRep);
+						} else if (typeof val2 === 'object' && val2 !== null) {
+							const num = getNumericValue(val2 as Record<string, unknown>, ['score', 'value', 'amount', 'points', 'delta']);
+							if (num !== undefined) {
+								const charRep = map.get(key1) || {};
+								charRep[key2] = num;
+								map.set(key1, charRep);
+							}
+						}
+					});
+				}
 			}
 		});
 	}
+}
+
+function getNumericValue(obj: Record<string, unknown>, keys: string[]): number | undefined {
+	for (const k of keys) {
+		const val = obj[k];
+		if (typeof val === 'number') return val;
+		if (typeof val === 'string' && !isNaN(Number(val))) return Number(val);
+	}
+	return undefined;
 }
