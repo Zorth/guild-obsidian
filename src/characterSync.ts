@@ -17,6 +17,7 @@ export function getCharacterFilePath(plugin: GuildObsidianPlugin, character: Gui
 
 	pattern = pattern
 		.replace('{name}', character.name)
+		.replace('{title}', character.title || '')
 		.replace('{id}', character._id)
 		.replace('{lvl}', String(character.lvl))
 		.replace('{level}', String(character.lvl))
@@ -34,6 +35,7 @@ export function getStandardCharacterKeys(plugin: GuildObsidianPlugin): Set<strin
 	return new Set([
 		plugin.settings.characterIdPropertyKey,
 		plugin.settings.characterNamePropertyKey,
+		plugin.settings.characterTitlePropertyKey,
 		plugin.settings.characterLevelPropertyKey,
 		plugin.settings.characterXpPropertyKey,
 		plugin.settings.characterClassPropertyKey,
@@ -99,6 +101,9 @@ export async function syncSingleCharacter(
 	}
 	if (plugin.settings.characterNamePropertyKey) {
 		frontmatterProps[plugin.settings.characterNamePropertyKey] = character.name;
+	}
+	if (plugin.settings.characterTitlePropertyKey && character.title) {
+		frontmatterProps[plugin.settings.characterTitlePropertyKey] = character.title;
 	}
 	if (plugin.settings.characterLevelPropertyKey) {
 		frontmatterProps[plugin.settings.characterLevelPropertyKey] = character.lvl;
@@ -261,11 +266,13 @@ export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: st
 	const updateData: Partial<GuildCharacter> = {};
 
 	const nameKey = plugin.settings.characterNamePropertyKey || 'name';
+	const titleKey = plugin.settings.characterTitlePropertyKey || 'title';
 	const classKey = plugin.settings.characterClassPropertyKey || 'class';
 	const ancestryKey = plugin.settings.characterAncestryPropertyKey || 'ancestry';
 	const websiteKey = plugin.settings.characterWebsiteLinkPropertyKey || 'websiteLink';
 
 	if (fm[nameKey] !== undefined) updateData.name = String(fm[nameKey]);
+	if (fm[titleKey] !== undefined) updateData.title = String(fm[titleKey]);
 	if (fm[classKey] !== undefined) updateData.class = String(fm[classKey]);
 	if (fm[ancestryKey] !== undefined) updateData.ancestry = String(fm[ancestryKey]);
 	if (fm[websiteKey] !== undefined) updateData.websiteLink = String(fm[websiteKey]);

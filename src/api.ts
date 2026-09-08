@@ -21,6 +21,7 @@ export interface GuildSession {
 export interface GuildCharacter {
 	_id: string;
 	name: string;
+	title?: string;
 	lvl: number;
 	xp: number;
 	ancestry?: string;

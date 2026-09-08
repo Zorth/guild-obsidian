@@ -187,9 +187,11 @@ export class GuildView extends ItemView {
 
 		characters.forEach(c => {
 			const card = charList.createEl('div', { cls: 'guild-card' });
-			card.createEl('strong', { text: `${c.name} (Lvl ${c.lvl} ${c.class || ''})` });
+			const titleSuffix = c.title ? ` - "${c.title}"` : '';
+			card.createEl('strong', { text: `${c.name}${titleSuffix} (Lvl ${c.lvl} ${c.class || ''})` });
+			const playerInfo = c.player ? ` | Player: ${typeof c.player === 'string' ? c.player : (c.player?.name || '')}` : '';
 			if (c.ancestry || c.xp !== undefined) {
-				card.createEl('p', { text: `Ancestry: ${c.ancestry || 'N/A'} | XP: ${c.xp}` });
+				card.createEl('p', { text: `Ancestry: ${c.ancestry || 'N/A'} | XP: ${c.xp}${playerInfo}` });
 			}
 			const displayRank = (c.rank && c.rank.trim().toLowerCase() !== 'none') ? c.rank : 'Apprentice';
 			card.createEl('small', { text: `Rank: ${displayRank}` });

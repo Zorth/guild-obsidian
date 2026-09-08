@@ -33,6 +33,7 @@ export interface GuildObsidianSettings {
 	// Configurable Character Property Keys
 	characterIdPropertyKey: string;
 	characterNamePropertyKey: string;
+	characterTitlePropertyKey: string;
 	characterLevelPropertyKey: string;
 	characterXpPropertyKey: string;
 	characterClassPropertyKey: string;
@@ -83,6 +84,7 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 
 	characterIdPropertyKey: 'guild_character_id',
 	characterNamePropertyKey: 'name',
+	characterTitlePropertyKey: 'title',
 	characterLevelPropertyKey: 'level',
 	characterXpPropertyKey: 'xp',
 	characterClassPropertyKey: 'class',
@@ -385,6 +387,17 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.characterNamePropertyKey)
 				.onChange(async (value) => {
 					this.plugin.settings.characterNamePropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Title Field Key')
+			.setDesc('Property for Character Title.')
+			.addText(text => text
+				.setPlaceholder('title')
+				.setValue(this.plugin.settings.characterTitlePropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.characterTitlePropertyKey = value.trim();
 					await this.plugin.saveSettings();
 				}));
 
