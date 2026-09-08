@@ -113,6 +113,13 @@ export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<Chara
 			frontmatterProps[plugin.settings.characterUserIdPropertyKey] = character.userId;
 		}
 
+		// Player name mapping
+		const playerName = extractPlayerName(character);
+		const playerKey = plugin.settings.characterPlayerPropertyKey || 'player';
+		if (playerName) {
+			frontmatterProps[playerKey] = playerName;
+		}
+
 		// Reputation mapping: combine character payload reputation with world reputation API data
 		const repFromChar = extractCharacterReputation(character);
 		const repFromMap = characterReputationMap.get(character._id) || {};
@@ -246,5 +253,37 @@ function getNumericValue(obj: Record<string, unknown>, keys: string[]): number |
 		if (typeof val === 'number') return val;
 		if (typeof val === 'string' && !isNaN(Number(val))) return Number(val);
 	}
+	return undefined;
+}
+
+function extractPlayerName(character: GuildCharacter): string | undefined {
+	const c = character as Record<string, unknown>;
+	const candidates = [
+		c.player,
+		c.playerName,
+		c.player_name,
+		c.userName,
+		c.user_name,
+		c.username,
+		c.user,
+		c.ownerName,
+		c.owner,
+		c.displayName,
+		c.display_name,
+	];
+
+	for (const candidate of candidates) {
+		if (typeof candidate === 'string' && candidate.trim()) {
+			return candidate.trim();
+		}
+		if (typeof candidate === 'object' && candidate !== null) {
+			const obj = candidate as Record<string, unknown>;
+			const name = (obj.name || obj.username || obj.displayName || obj.user_name || obj.playerName) as string | undefined;
+			if (typeof name === 'string' && name.trim()) {
+				return name.trim();
+			}
+		}
+	}
+
 	return undefined;
 }

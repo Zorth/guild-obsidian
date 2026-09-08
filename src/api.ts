@@ -29,6 +29,13 @@ export interface GuildCharacter {
 	userId?: string;
 	rank?: string;
 	websiteLink?: string;
+	player?: any;
+	playerName?: any;
+	user_name?: any;
+	userName?: any;
+	username?: any;
+	ownerName?: any;
+	displayName?: any;
 	reputation?: any;
 	reputations?: any;
 	factions?: any;
