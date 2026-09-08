@@ -175,8 +175,12 @@ export class GuildView extends ItemView {
 		});
 
 		let characters = await client.getCharacters();
-		// Sort characters descending by level
-		characters.sort((a, b) => b.lvl - a.lvl);
+		// Sort characters descending by level, then by XP
+		characters.sort((a, b) => {
+			const lvlDiff = (b.lvl || 0) - (a.lvl || 0);
+			if (lvlDiff !== 0) return lvlDiff;
+			return (b.xp || 0) - (a.xp || 0);
+		});
 
 		container.createEl('h5', { text: `Characters (${characters.length})` });
 		const charList = container.createEl('div', { cls: 'guild-card-list' });
@@ -187,9 +191,8 @@ export class GuildView extends ItemView {
 			if (c.ancestry || c.xp !== undefined) {
 				card.createEl('p', { text: `Ancestry: ${c.ancestry || 'N/A'} | XP: ${c.xp}` });
 			}
-			if (c.rank) {
-				card.createEl('small', { text: `Rank: ${c.rank}` });
-			}
+			const displayRank = (c.rank && c.rank.trim().toLowerCase() !== 'none') ? c.rank : 'Apprentice';
+			card.createEl('small', { text: `Rank: ${displayRank}` });
 
 			const existingFile = this.findFileForCharacter(c);
 			const actions = card.createEl('div', { cls: 'guild-card-actions' });
