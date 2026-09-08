@@ -74,30 +74,7 @@ export async function syncSingleCharacter(
 		frontmatterProps[plugin.settings.characterWebsiteLinkPropertyKey] = character.websiteLink;
 	}
 
-	let playerName = extractPlayerName(character);
-
-	if (!playerName) {
-		const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
-		try {
-			const detailedChar = await client.getCharacter(character._id);
-			playerName = extractPlayerName(detailedChar);
-		} catch {
-			// ignore
-		}
-
-		if (!playerName && character.userId) {
-			try {
-				const userObj = await (client as any).request(`/user/${character.userId}`).catch(() => null)
-					|| await (client as any).request(`/users/${character.userId}`).catch(() => null);
-				if (userObj && typeof userObj === 'object') {
-					playerName = (userObj.name || userObj.username || userObj.displayName || userObj.user_name || userObj.playerName) as string | undefined;
-				}
-			} catch {
-				// ignore
-			}
-		}
-	}
-
+	const playerName = extractPlayerName(character);
 	const playerKey = plugin.settings.characterPlayerPropertyKey || 'player';
 	if (playerName) {
 		frontmatterProps[playerKey] = playerName;
@@ -365,8 +342,20 @@ function extractPlayerName(character: GuildCharacter): string | undefined {
 		}
 		if (typeof candidate === 'object' && candidate !== null) {
 			const obj = candidate as Record<string, unknown>;
-			const name = (obj.name || obj.username || obj.displayName || obj.user_name || obj.playerName) as string | undefined;
-			if (typeof name === 'string' && name.trim()) {
+			const name = (obj.name || obj.username || obj.displayName || obj.user_name || obj.playerName || obj.global_name || obj.nick) as string | undefined;
+			if (typeof name === 'string' && name.trim() && !/^[0-9a-fA-F]{24}$/.test(name.trim())) {
+				return name.trim();
+			}
+		}
+	}
+
+	// Deep check all properties of character object in case nested user object has another key name
+	for (const [key, val] of Object.entries(c)) {
+		if (['name', '_id', 'id', 'system', 'ancestry', 'class', 'rank', 'websiteLink', 'lvl', 'xp'].includes(key)) continue;
+		if (typeof val === 'object' && val !== null) {
+			const obj = val as Record<string, unknown>;
+			const name = (obj.name || obj.username || obj.displayName || obj.user_name || obj.playerName || obj.global_name || obj.nick) as string | undefined;
+			if (typeof name === 'string' && name.trim() && !/^[0-9a-fA-F]{24}$/.test(name.trim())) {
 				return name.trim();
 			}
 		}
