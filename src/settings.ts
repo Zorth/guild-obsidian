@@ -43,6 +43,20 @@ export interface GuildObsidianSettings {
 	characterUserIdPropertyKey: string;
 	characterPlayerPropertyKey: string;
 	characterReputationPropertyKey: string;
+
+	// Quest Sync Settings
+	questsFolder: string;
+	questFilenameFormat: string;
+	questTemplateFilePath: string;
+
+	// Configurable Quest Property Keys
+	questIdPropertyKey: string;
+	questNamePropertyKey: string;
+	questDescriptionPropertyKey: string;
+	questRewardPropertyKey: string;
+	questgiverPropertyKey: string;
+	questStatusPropertyKey: string;
+	questWorldPropertyKey: string;
 }
 
 export const DEFAULT_SETTINGS: GuildObsidianSettings = {
@@ -79,7 +93,20 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 	characterWebsiteLinkPropertyKey: 'websiteLink',
 	characterUserIdPropertyKey: 'userId',
 	characterPlayerPropertyKey: 'player',
-	characterReputationPropertyKey: 'reputation'
+	characterReputationPropertyKey: 'reputation',
+
+	// Quests
+	questsFolder: 'Quests',
+	questFilenameFormat: '{name}',
+	questTemplateFilePath: '',
+
+	questIdPropertyKey: 'guild_quest_id',
+	questNamePropertyKey: 'name',
+	questDescriptionPropertyKey: 'description',
+	questRewardPropertyKey: 'reward',
+	questgiverPropertyKey: 'questgiver',
+	questStatusPropertyKey: 'isCompleted',
+	questWorldPropertyKey: 'world'
 };
 
 export class GuildObsidianSettingTab extends PluginSettingTab {
@@ -470,6 +497,117 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.characterReputationPropertyKey)
 				.onChange(async (value) => {
 					this.plugin.settings.characterReputationPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		// --- Quest Sync Settings ---
+		containerEl.createEl('h3', { text: 'Quest Synchronization Settings' });
+
+		new Setting(containerEl)
+			.setName('Quests Folder')
+			.setDesc('Vault folder where quest notes will be created/updated.')
+			.addText(text => {
+				text
+					.setPlaceholder('Quests')
+					.setValue(this.plugin.settings.questsFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.questsFolder = value;
+						await this.plugin.saveSettings();
+					});
+				new FolderSuggest(this.app, text.inputEl);
+			});
+
+		new Setting(containerEl)
+			.setName('Quest Filename Format')
+			.setDesc('Pattern for quest note filenames. Placeholders: {name}, {id}, {questgiver}, {world}.')
+			.addText(text => text
+				.setPlaceholder('{name}')
+				.setValue(this.plugin.settings.questFilenameFormat)
+				.onChange(async (value) => {
+					this.plugin.settings.questFilenameFormat = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Quest Template Note')
+			.setDesc('Path to template file for new quest notes (e.g. Templates/Quest Template.md).')
+			.addText(text => {
+				text
+					.setPlaceholder('Templates/Quest Template.md')
+					.setValue(this.plugin.settings.questTemplateFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.questTemplateFilePath = value;
+						await this.plugin.saveSettings();
+					});
+				new FileSuggest(this.app, text.inputEl);
+			});
+
+		// Configurable Quest Frontmatter Property Keys
+		containerEl.createEl('h4', { text: 'Quest Property Mappings' });
+
+		new Setting(containerEl)
+			.setName('Quest ID Field Key')
+			.setDesc('Property for Guild Quest ID.')
+			.addText(text => text
+				.setPlaceholder('guild_quest_id')
+				.setValue(this.plugin.settings.questIdPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.questIdPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Quest Name Field Key')
+			.setDesc('Property for Quest Name.')
+			.addText(text => text
+				.setPlaceholder('name')
+				.setValue(this.plugin.settings.questNamePropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.questNamePropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Description Field Key')
+			.setDesc('Property for Quest Description.')
+			.addText(text => text
+				.setPlaceholder('description')
+				.setValue(this.plugin.settings.questDescriptionPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.questDescriptionPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Reward Field Key')
+			.setDesc('Property for Quest Reward.')
+			.addText(text => text
+				.setPlaceholder('reward')
+				.setValue(this.plugin.settings.questRewardPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.questRewardPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Questgiver Field Key')
+			.setDesc('Property for Questgiver.')
+			.addText(text => text
+				.setPlaceholder('questgiver')
+				.setValue(this.plugin.settings.questgiverPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.questgiverPropertyKey = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Status / Completed Field Key')
+			.setDesc('Property for Quest Completion Status.')
+			.addText(text => text
+				.setPlaceholder('isCompleted')
+				.setValue(this.plugin.settings.questStatusPropertyKey)
+				.onChange(async (value) => {
+					this.plugin.settings.questStatusPropertyKey = value.trim();
 					await this.plugin.saveSettings();
 				}));
 	}

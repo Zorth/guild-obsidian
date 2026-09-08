@@ -1,6 +1,6 @@
 import { TFile, Notice } from 'obsidian';
 import GuildObsidianPlugin from './main';
-import { GuildApiClient, GuildCharacter, GuildWorld } from './api';
+import { GuildApiClient, GuildCharacter } from './api';
 import { createNoteFromTemplate } from './templateUtils';
 
 export interface CharacterSyncResult {
@@ -9,10 +9,163 @@ export interface CharacterSyncResult {
 	total: number;
 }
 
+export function getCharacterFilePath(plugin: GuildObsidianPlugin, character: GuildCharacter): string {
+	const folderPath = plugin.settings.charactersFolder.trim().replace(/^\/+|\/+$/g, '') || 'Characters';
+	let pattern = plugin.settings.characterFilenameFormat.trim() || '{name}';
+
+	pattern = pattern
+		.replace('{name}', character.name)
+		.replace('{id}', character._id)
+		.replace('{lvl}', String(character.lvl))
+		.replace('{level}', String(character.lvl))
+		.replace('{class}', character.class || '')
+		.replace('{ancestry}', character.ancestry || '')
+		.replace('{system}', character.system || '')
+		.replace('{rank}', character.rank || '');
+
+	const sanitizedFilename = pattern.replace(/[/\\?%*:|"<>]/g, '-').trim();
+	const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`;
+	return `${folderPath}/${finalFilename}`;
+}
+
+export async function syncSingleCharacter(
+	plugin: GuildObsidianPlugin,
+	character: GuildCharacter,
+	characterReputationMap?: Map<string, Record<string, number>>
+): Promise<TFile> {
+	const filePath = getCharacterFilePath(plugin, character);
+
+	const folderPath = plugin.settings.charactersFolder.trim().replace(/^\/+|\/+$/g, '') || 'Characters';
+	const folder = plugin.app.vault.getAbstractFileByPath(folderPath);
+	if (!folder) {
+		await plugin.app.vault.createFolder(folderPath);
+	}
+
+	const frontmatterProps: Record<string, unknown> = {};
+
+	if (plugin.settings.characterIdPropertyKey) {
+		frontmatterProps[plugin.settings.characterIdPropertyKey] = character._id;
+	}
+	if (plugin.settings.characterNamePropertyKey) {
+		frontmatterProps[plugin.settings.characterNamePropertyKey] = character.name;
+	}
+	if (plugin.settings.characterLevelPropertyKey) {
+		frontmatterProps[plugin.settings.characterLevelPropertyKey] = character.lvl;
+	}
+	if (plugin.settings.characterXpPropertyKey) {
+		frontmatterProps[plugin.settings.characterXpPropertyKey] = character.xp;
+	}
+	if (plugin.settings.characterClassPropertyKey && character.class) {
+		frontmatterProps[plugin.settings.characterClassPropertyKey] = character.class;
+	}
+	if (plugin.settings.characterAncestryPropertyKey && character.ancestry) {
+		frontmatterProps[plugin.settings.characterAncestryPropertyKey] = character.ancestry;
+	}
+	if (plugin.settings.characterSystemPropertyKey && character.system) {
+		frontmatterProps[plugin.settings.characterSystemPropertyKey] = character.system;
+	}
+	if (plugin.settings.characterRankPropertyKey && character.rank) {
+		frontmatterProps[plugin.settings.characterRankPropertyKey] = character.rank;
+	}
+	if (plugin.settings.characterWebsiteLinkPropertyKey && character.websiteLink) {
+		frontmatterProps[plugin.settings.characterWebsiteLinkPropertyKey] = character.websiteLink;
+	}
+	if (plugin.settings.characterUserIdPropertyKey && character.userId) {
+		frontmatterProps[plugin.settings.characterUserIdPropertyKey] = character.userId;
+	}
+
+	const playerName = extractPlayerName(character);
+	const playerKey = plugin.settings.characterPlayerPropertyKey || 'player';
+	if (playerName) {
+		frontmatterProps[playerKey] = playerName;
+	}
+
+	const repFromChar = extractCharacterReputation(character);
+	const repFromMap = characterReputationMap?.get(character._id) || {};
+	const mergedRep = { ...repFromChar, ...repFromMap };
+
+	Object.entries(mergedRep).forEach(([factionName, score]) => {
+		if (factionName && typeof score === 'number') {
+			frontmatterProps[factionName] = score;
+		}
+	});
+
+	let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
+	if (!(existingFile instanceof TFile)) {
+		const files = plugin.app.vault.getMarkdownFiles();
+		const idKey = plugin.settings.characterIdPropertyKey || 'guild_character_id';
+		for (const file of files) {
+			const cache = plugin.app.metadataCache.getFileCache(file);
+			if (cache?.frontmatter && cache.frontmatter[idKey] === character._id) {
+				existingFile = file;
+				break;
+			}
+		}
+	}
+
+	if (existingFile instanceof TFile) {
+		await plugin.app.fileManager.processFrontMatter(existingFile, (fm) => {
+			Object.assign(fm, frontmatterProps);
+		});
+		return existingFile;
+	} else {
+		return await createNoteFromTemplate(
+			plugin.app,
+			filePath,
+			plugin.settings.characterTemplateFilePath,
+			frontmatterProps
+		);
+	}
+}
+
+export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: string): Promise<boolean> {
+	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+	const files = plugin.app.vault.getMarkdownFiles();
+	const idKey = plugin.settings.characterIdPropertyKey || 'guild_character_id';
+
+	let targetFile: TFile | null = null;
+	for (const file of files) {
+		const cache = plugin.app.metadataCache.getFileCache(file);
+		if (cache?.frontmatter && cache.frontmatter[idKey] === characterId) {
+			targetFile = file;
+			break;
+		}
+	}
+
+	if (!targetFile) {
+		new Notice('Guild Obsidian: Local character note not found to push.');
+		return false;
+	}
+
+	const cache = plugin.app.metadataCache.getFileCache(targetFile);
+	const fm = cache?.frontmatter || {};
+
+	const updateData: Partial<GuildCharacter> = {};
+
+	const nameKey = plugin.settings.characterNamePropertyKey || 'name';
+	const classKey = plugin.settings.characterClassPropertyKey || 'class';
+	const ancestryKey = plugin.settings.characterAncestryPropertyKey || 'ancestry';
+	const websiteKey = plugin.settings.characterWebsiteLinkPropertyKey || 'websiteLink';
+
+	if (fm[nameKey] !== undefined) updateData.name = String(fm[nameKey]);
+	if (fm[classKey] !== undefined) updateData.class = String(fm[classKey]);
+	if (fm[ancestryKey] !== undefined) updateData.ancestry = String(fm[ancestryKey]);
+	if (fm[websiteKey] !== undefined) updateData.websiteLink = String(fm[websiteKey]);
+
+	try {
+		await client.updateCharacter(characterId, updateData);
+		new Notice(`Guild Obsidian: Successfully pushed character updates for "${updateData.name || characterId}"`);
+		return true;
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		new Notice(`Guild Obsidian: Failed to push character: ${msg}`);
+		return false;
+	}
+}
+
 export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<CharacterSyncResult> {
 	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
 
-	// Fetch Characters
 	let characters: GuildCharacter[] = [];
 	try {
 		characters = await client.getCharacters();
@@ -27,8 +180,6 @@ export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<Chara
 		return { created: 0, updated: 0, total: 0 };
 	}
 
-	// Fetch Reputation Data for Selected World(s)
-	// Map: characterId -> Record<factionName, number>
 	const characterReputationMap = new Map<string, Record<string, number>>();
 
 	try {
@@ -52,108 +203,16 @@ export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<Chara
 		console.warn('Guild Obsidian: Reputation fetch skipped', err);
 	}
 
-	// Ensure Target Folder Exists
-	const folderPath = plugin.settings.charactersFolder.trim().replace(/^\/+|\/+$/g, '') || 'Characters';
-	const folder = plugin.app.vault.getAbstractFileByPath(folderPath);
-	if (!folder) {
-		await plugin.app.vault.createFolder(folderPath);
-	}
-
 	let createdCount = 0;
 	let updatedCount = 0;
 
 	for (const character of characters) {
-		// Generate Filename
-		let pattern = plugin.settings.characterFilenameFormat.trim() || '{name}';
-		pattern = pattern
-			.replace('{name}', character.name)
-			.replace('{id}', character._id)
-			.replace('{lvl}', String(character.lvl))
-			.replace('{level}', String(character.lvl))
-			.replace('{class}', character.class || '')
-			.replace('{ancestry}', character.ancestry || '')
-			.replace('{system}', character.system || '')
-			.replace('{rank}', character.rank || '');
-
-		const sanitizedFilename = pattern.replace(/[/\\?%*:|"<>]/g, '-').trim();
-		const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`;
-		const filePath = `${folderPath}/${finalFilename}`;
-
-		// Build Frontmatter object with custom property key mappings
-		const frontmatterProps: Record<string, unknown> = {};
-
-		if (plugin.settings.characterIdPropertyKey) {
-			frontmatterProps[plugin.settings.characterIdPropertyKey] = character._id;
-		}
-		if (plugin.settings.characterNamePropertyKey) {
-			frontmatterProps[plugin.settings.characterNamePropertyKey] = character.name;
-		}
-		if (plugin.settings.characterLevelPropertyKey) {
-			frontmatterProps[plugin.settings.characterLevelPropertyKey] = character.lvl;
-		}
-		if (plugin.settings.characterXpPropertyKey) {
-			frontmatterProps[plugin.settings.characterXpPropertyKey] = character.xp;
-		}
-		if (plugin.settings.characterClassPropertyKey && character.class) {
-			frontmatterProps[plugin.settings.characterClassPropertyKey] = character.class;
-		}
-		if (plugin.settings.characterAncestryPropertyKey && character.ancestry) {
-			frontmatterProps[plugin.settings.characterAncestryPropertyKey] = character.ancestry;
-		}
-		if (plugin.settings.characterSystemPropertyKey && character.system) {
-			frontmatterProps[plugin.settings.characterSystemPropertyKey] = character.system;
-		}
-		if (plugin.settings.characterRankPropertyKey && character.rank) {
-			frontmatterProps[plugin.settings.characterRankPropertyKey] = character.rank;
-		}
-		if (plugin.settings.characterWebsiteLinkPropertyKey && character.websiteLink) {
-			frontmatterProps[plugin.settings.characterWebsiteLinkPropertyKey] = character.websiteLink;
-		}
-		if (plugin.settings.characterUserIdPropertyKey && character.userId) {
-			frontmatterProps[plugin.settings.characterUserIdPropertyKey] = character.userId;
-		}
-
-		// Player name mapping
-		const playerName = extractPlayerName(character);
-		const playerKey = plugin.settings.characterPlayerPropertyKey || 'player';
-		if (playerName) {
-			frontmatterProps[playerKey] = playerName;
-		}
-
-		// Reputation mapping: combine character payload reputation with world reputation API data
-		const repFromChar = extractCharacterReputation(character);
-		const repFromMap = characterReputationMap.get(character._id) || {};
-		const mergedRep = { ...repFromChar, ...repFromMap };
-
-		// Add reputation fields directly as top-level frontmatter properties (no leading 2 spaces / nested object)
-		Object.entries(mergedRep).forEach(([factionName, score]) => {
-			if (factionName && typeof score === 'number') {
-				frontmatterProps[factionName] = score;
-			}
-		});
-
-		// Sync Note
-		let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
-
-		if (existingFile instanceof TFile) {
-			// Update frontmatter only, keeping note body and Templater code intact
-			await plugin.app.fileManager.processFrontMatter(existingFile, (fm) => {
-				Object.assign(fm, frontmatterProps);
-			});
-			updatedCount++;
-		} else {
-			await createNoteFromTemplate(
-				plugin.app,
-				filePath,
-				plugin.settings.characterTemplateFilePath,
-				frontmatterProps
-			);
-			createdCount++;
-		}
+		await syncSingleCharacter(plugin, character, characterReputationMap);
+		updatedCount++;
 	}
 
 	const total = characters.length;
-	new Notice(`Guild Obsidian: Character sync complete. Created: ${createdCount}, Updated: ${updatedCount}, Total: ${total}`);
+	new Notice(`Guild Obsidian: Character sync complete. Total: ${total}`);
 	return { created: createdCount, updated: updatedCount, total };
 }
 

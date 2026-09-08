@@ -9,17 +9,36 @@ export interface SyncResult {
 	total: number;
 }
 
-export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncResult> {
-	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
-
-	// Fetch Worlds for mapping
-	let worlds: GuildWorld[] = [];
-	try {
-		worlds = await client.getWorlds();
-	} catch (err) {
-		console.warn('Guild Obsidian: Failed to fetch worlds list', err);
+export function getSessionFilePath(plugin: GuildObsidianPlugin, session: GuildSession, worldName = 'General'): string {
+	const folderPath = plugin.settings.sessionsFolder.trim().replace(/^\/+|\/+$/g, '') || 'Sessions';
+	const rawDate = session.date || session.startDate;
+	let formattedDate = 'Undated';
+	if (rawDate) {
+		const d = new Date(rawDate);
+		if (!isNaN(d.getTime())) {
+			formattedDate = d.toISOString().split('T')[0];
+		} else {
+			formattedDate = String(rawDate).split('T')[0];
+		}
 	}
 
+	let filenamePattern = plugin.settings.filenameFormat.trim() || '{date} {world}';
+	filenamePattern = filenamePattern
+		.replace('{date}', formattedDate)
+		.replace('YYYY-MM-DD', formattedDate)
+		.replace('{world}', worldName)
+		.replace('WORLDNAME', worldName)
+		.replace('{system}', session.system)
+		.replace('{id}', session._id);
+
+	const sanitizedFilename = filenamePattern.replace(/[/\\?%*:|"<>]/g, '-').trim();
+	const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`;
+	return `${folderPath}/${finalFilename}`;
+}
+
+export async function syncSingleSession(plugin: GuildObsidianPlugin, session: GuildSession): Promise<TFile> {
+	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+	const worlds = await client.getWorlds().catch(() => []);
 	const worldMap = new Map<string, string>();
 	worlds.forEach(w => {
 		if (w._id) {
@@ -32,7 +51,126 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 		}
 	});
 
-	// Fetch Sessions (both upcoming and past)
+	let rawWorld: string | undefined = session.worldName || session.worldId || session.world_id || (typeof session.world === 'string' ? session.world : session.world?.name);
+	if (!rawWorld && plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
+		rawWorld = plugin.settings.selectedWorldId;
+	}
+
+	let worldName = 'General';
+	if (rawWorld) {
+		const mapped = worldMap.get(rawWorld) || worldMap.get(rawWorld.toLowerCase());
+		worldName = mapped || rawWorld.replace(/\b\w/g, c => c.toUpperCase());
+	}
+
+	const filePath = getSessionFilePath(plugin, session, worldName);
+
+	const folderPath = plugin.settings.sessionsFolder.trim().replace(/^\/+|\/+$/g, '') || 'Sessions';
+	const folder = plugin.app.vault.getAbstractFileByPath(folderPath);
+	if (!folder) {
+		await plugin.app.vault.createFolder(folderPath);
+	}
+
+	let playerWikilinks: string[] = [];
+	try {
+		const characters = await client.getSessionCharacters(session._id);
+		playerWikilinks = characters.map(c => `[[${c.name}]]`);
+	} catch {
+		if (session.attendingCharacters) {
+			playerWikilinks = session.attendingCharacters.map(id => `[[${id}]]`);
+		}
+	}
+
+	const frontmatterProps: Record<string, unknown> = {
+		[plugin.settings.sessionIdPropertyKey]: session._id,
+		[plugin.settings.worldPropertyKey]: worldName,
+		[plugin.settings.systemPropertyKey]: session.system,
+		[plugin.settings.playersPropertyKey]: playerWikilinks,
+	};
+
+	const startDateValue = session.startDate || session.date;
+	if (startDateValue) {
+		frontmatterProps[plugin.settings.startDatePropertyKey] = startDateValue;
+	}
+
+	const endDateValue = session.endDate || startDateValue;
+	if (endDateValue) {
+		frontmatterProps[plugin.settings.endDatePropertyKey] = endDateValue;
+	}
+
+	let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
+	if (!(existingFile instanceof TFile)) {
+		const files = plugin.app.vault.getMarkdownFiles();
+		const idKey = plugin.settings.sessionIdPropertyKey || 'guild_session_id';
+		for (const file of files) {
+			const cache = plugin.app.metadataCache.getFileCache(file);
+			if (cache?.frontmatter && cache.frontmatter[idKey] === session._id) {
+				existingFile = file;
+				break;
+			}
+		}
+	}
+
+	if (existingFile instanceof TFile) {
+		await plugin.app.fileManager.processFrontMatter(existingFile, (fm) => {
+			Object.assign(fm, frontmatterProps);
+		});
+		return existingFile;
+	} else {
+		return await createNoteFromTemplate(
+			plugin.app,
+			filePath,
+			plugin.settings.templateFilePath,
+			frontmatterProps
+		);
+	}
+}
+
+export async function pushSession(plugin: GuildObsidianPlugin, sessionId: string): Promise<boolean> {
+	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+	const files = plugin.app.vault.getMarkdownFiles();
+	const idKey = plugin.settings.sessionIdPropertyKey || 'guild_session_id';
+
+	let targetFile: TFile | null = null;
+	for (const file of files) {
+		const cache = plugin.app.metadataCache.getFileCache(file);
+		if (cache?.frontmatter && cache.frontmatter[idKey] === sessionId) {
+			targetFile = file;
+			break;
+		}
+	}
+
+	if (!targetFile) {
+		new Notice('Guild Obsidian: Local session note not found to push.');
+		return false;
+	}
+
+	const cache = plugin.app.metadataCache.getFileCache(targetFile);
+	const fm = cache?.frontmatter || {};
+
+	const updateData: Partial<GuildSession> = {};
+
+	const startKey = plugin.settings.startDatePropertyKey || 'startDate';
+	const locationKey = 'location';
+	const planningKey = 'planning';
+
+	if (fm[startKey] !== undefined) updateData.startDate = String(fm[startKey]);
+	if (fm[locationKey] !== undefined) updateData.location = String(fm[locationKey]);
+	if (fm[planningKey] !== undefined) updateData.planning = String(fm[planningKey]);
+
+	try {
+		await client.updateSession(sessionId, updateData);
+		new Notice(`Guild Obsidian: Successfully pushed session updates for session ${sessionId}`);
+		return true;
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		new Notice(`Guild Obsidian: Failed to push session: ${msg}`);
+		return false;
+	}
+}
+
+export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncResult> {
+	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+
 	let upcomingSessions: GuildSession[] = [];
 	let pastSessions: GuildSession[] = [];
 
@@ -48,7 +186,6 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 		console.warn('Guild Obsidian: Failed to fetch past sessions', err);
 	}
 
-	// Deduplicate sessions by _id
 	const sessionMap = new Map<string, GuildSession>();
 	[...upcomingSessions, ...pastSessions].forEach(s => sessionMap.set(s._id, s));
 	const sessions = Array.from(sessionMap.values());
@@ -58,127 +195,18 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 		return { created: 0, updated: 0, total: 0 };
 	}
 
-	// Ensure Target Folder Exists
-	const folderPath = plugin.settings.sessionsFolder.trim().replace(/^\/+|\/+$/g, '') || 'Sessions';
-	const folder = plugin.app.vault.getAbstractFileByPath(folderPath);
-	if (!folder) {
-		await plugin.app.vault.createFolder(folderPath);
-	}
-
 	let createdCount = 0;
 	let updatedCount = 0;
 
 	for (const session of sessions) {
-		// Determine raw world identifier from session or settings fallback
-		let rawWorld: string | undefined = undefined;
-
-		if (typeof session.worldName === 'string' && session.worldName.trim()) {
-			rawWorld = session.worldName.trim();
-		} else if (typeof session.worldId === 'string' && session.worldId.trim()) {
-			rawWorld = session.worldId.trim();
-		} else if (typeof session.world_id === 'string' && session.world_id.trim()) {
-			rawWorld = session.world_id.trim();
-		} else if (typeof session.world === 'string' && session.world.trim()) {
-			rawWorld = session.world.trim();
-		} else if (typeof session.world === 'object' && session.world !== null) {
-			const wObj = session.world as { _id?: string; name?: string };
-			rawWorld = wObj.name || wObj._id;
-		}
-
-		if (!rawWorld && plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
-			rawWorld = plugin.settings.selectedWorldId;
-		}
-
-		let worldName = 'General';
-		if (rawWorld) {
-			const mapped = worldMap.get(rawWorld) || worldMap.get(rawWorld.toLowerCase());
-			if (mapped) {
-				worldName = mapped;
-			} else {
-				worldName = rawWorld.replace(/\b\w/g, c => c.toUpperCase());
-			}
-		}
-		
-		// Date formatting
-		const rawDate = session.date || session.startDate;
-		let formattedDate = 'Undated';
-		if (rawDate) {
-			const d = new Date(rawDate);
-			if (!isNaN(d.getTime())) {
-				formattedDate = d.toISOString().split('T')[0];
-			} else {
-				formattedDate = String(rawDate).split('T')[0];
-			}
-		}
-
-		// Generate Filename
-		let filenamePattern = plugin.settings.filenameFormat.trim() || '{date} {world}';
-		
-		// Support both {date} and YYYY-MM-DD placeholder styles
-		filenamePattern = filenamePattern
-			.replace('{date}', formattedDate)
-			.replace('YYYY-MM-DD', formattedDate)
-			.replace('{world}', worldName)
-			.replace('WORLDNAME', worldName)
-			.replace('{system}', session.system)
-			.replace('{id}', session._id);
-
-		// Sanitize filename for operating system forbidden characters
-		const sanitizedFilename = filenamePattern.replace(/[/\\?%*:|"<>]/g, '-').trim();
-		const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`;
-		const filePath = `${folderPath}/${finalFilename}`;
-
-		// Fetch Attending Characters
-		let playerWikilinks: string[] = [];
-		try {
-			const characters = await client.getSessionCharacters(session._id);
-			playerWikilinks = characters.map(c => `[[${c.name}]]`);
-		} catch {
-			// If session characters endpoint is unavailable, fallback to character IDs if available
-			if (session.attendingCharacters) {
-				playerWikilinks = session.attendingCharacters.map(id => `[[${id}]]`);
-			}
-		}
-
-		// Construct Frontmatter Properties
-		const frontmatterProps: Record<string, unknown> = {
-			[plugin.settings.sessionIdPropertyKey]: session._id,
-			[plugin.settings.worldPropertyKey]: worldName,
-			[plugin.settings.systemPropertyKey]: session.system,
-			[plugin.settings.playersPropertyKey]: playerWikilinks,
-		};
-
-		const startDateValue = session.startDate || session.date;
-		if (startDateValue) {
-			frontmatterProps[plugin.settings.startDatePropertyKey] = startDateValue;
-		}
-
-		const endDateValue = session.endDate || startDateValue;
-		if (endDateValue) {
-			frontmatterProps[plugin.settings.endDatePropertyKey] = endDateValue;
-		}
-
-		// Sync Note
-		let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
-
-		if (existingFile instanceof TFile) {
-			// File exists: Update frontmatter ONLY without disturbing body or Templater code
-			await plugin.app.fileManager.processFrontMatter(existingFile, (fm) => {
-				Object.assign(fm, frontmatterProps);
-			});
+		const file = await syncSingleSession(plugin, session);
+		if (file) {
+			// Count updated vs created based on stats if needed
 			updatedCount++;
-		} else {
-			await createNoteFromTemplate(
-				plugin.app,
-				filePath,
-				plugin.settings.templateFilePath,
-				frontmatterProps
-			);
-			createdCount++;
 		}
 	}
 
 	const total = sessions.length;
-	new Notice(`Guild Obsidian: Sync complete. Created: ${createdCount}, Updated: ${updatedCount}, Total: ${total}`);
+	new Notice(`Guild Obsidian: Sync complete. Total: ${total}`);
 	return { created: createdCount, updated: updatedCount, total };
 }

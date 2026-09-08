@@ -145,6 +145,10 @@ export class GuildApiClient {
 		return this.request<GuildCharacter[]>(`/session/${sessionId}/characters`);
 	}
 
+	async updateSession(sessionId: string, data: Partial<GuildSession>): Promise<GuildSession> {
+		return this.request<GuildSession>(`/session/${sessionId}`, 'PATCH', data);
+	}
+
 	// --- Characters ---
 	async getCharacters(userId?: string): Promise<GuildCharacter[]> {
 		const qs = userId ? `?userId=${encodeURIComponent(userId)}` : '';

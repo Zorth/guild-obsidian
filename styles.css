@@ -84,6 +84,37 @@
 	width: 100%;
 }
 
+.guild-card-actions {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	margin-top: 8px;
+}
+
+.guild-card-actions button {
+	font-size: 0.8em;
+	padding: 4px 8px;
+}
+
+.guild-goto-btn {
+	flex: 1;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.guild-icon-btn {
+	padding: 4px 8px;
+	cursor: pointer;
+}
+
+.guild-push-btn {
+	background: var(--background-modifier-border);
+	cursor: pointer;
+}
+
 .guild-error {
 	color: var(--text-error);
 	padding: 8px;
