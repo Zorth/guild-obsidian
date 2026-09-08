@@ -103,7 +103,12 @@ export class GuildApiClient {
 		this.apiKey = apiKey.trim();
 	}
 
-	private async request<T>(endpoint: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<T> {
+	private async request<T>(
+		endpoint: string,
+		method: 'GET' | 'POST' | 'PATCH' = 'GET',
+		body?: unknown,
+		includeAuth = true
+	): Promise<T> {
 		if ((method === 'POST' || method === 'PATCH') && !this.apiKey) {
 			throw new Error('API Key missing. Please configure your API key in Guild Obsidian settings.');
 		}
@@ -114,7 +119,7 @@ export class GuildApiClient {
 			'Content-Type': 'application/json'
 		};
 
-		if (this.apiKey) {
+		if (this.apiKey && includeAuth) {
 			headers['Authorization'] = `Bearer ${this.apiKey}`;
 		}
 
@@ -173,19 +178,32 @@ export class GuildApiClient {
 	// --- Characters ---
 	async getCharacters(userId?: string): Promise<GuildCharacter[]> {
 		const qs = userId ? `?userId=${encodeURIComponent(userId)}` : '';
-		return this.request<GuildCharacter[]>(`/characters${qs}`);
+		// GET /characters is public; omitting Authorization returns all characters across the guild
+		return this.request<GuildCharacter[]>(`/characters${qs}`, 'GET', undefined, false);
 	}
 
 	async getCharacter(characterId: string): Promise<GuildCharacter> {
 		return this.request<GuildCharacter>(`/character/${characterId}`);
 	}
 
+	async getCharacterSheet(characterId: string): Promise<unknown> {
+		return this.request<unknown>(`/character/${characterId}/sheet`);
+	}
+
 	async createCharacter(data: Partial<GuildCharacter>): Promise<GuildCharacter> {
 		return this.request<GuildCharacter>('/character', 'POST', data);
 	}
 
+	async createCharacterSheet(characterId: string, data: unknown): Promise<unknown> {
+		return this.request<unknown>(`/character/${characterId}/sheet`, 'POST', data);
+	}
+
 	async updateCharacter(characterId: string, data: Partial<GuildCharacter>): Promise<GuildCharacter> {
 		return this.request<GuildCharacter>(`/character/${characterId}`, 'PATCH', data);
+	}
+
+	async updateCharacterSheet(characterId: string, data: unknown): Promise<unknown> {
+		return this.request<unknown>(`/character/${characterId}/sheet`, 'PATCH', data);
 	}
 
 	// --- Worlds & Quests ---
