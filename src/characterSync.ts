@@ -256,6 +256,17 @@ export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: st
 	}
 
 	if (!targetFile) {
+		const char = await client.getCharacter(characterId).catch(() => null);
+		if (char) {
+			const expectedPath = getCharacterFilePath(plugin, char);
+			const f = plugin.app.vault.getAbstractFileByPath(expectedPath);
+			if (f instanceof TFile) {
+				targetFile = f;
+			}
+		}
+	}
+
+	if (!targetFile) {
 		new Notice('Guild Obsidian: Local character note not found to push.');
 		return false;
 	}
@@ -290,14 +301,28 @@ export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: st
 		}
 
 		if (targetWorldId) {
+			const currentScores: Record<string, number> = {};
+			try {
+				const repMap = new Map<string, Record<string, number>>();
+				const repData = await client.getWorldReputation(targetWorldId);
+				parseReputationData(repData, repMap);
+				Object.assign(currentScores, repMap.get(characterId) || {});
+			} catch {
+				// ignore
+			}
+
 			for (const [key, val] of Object.entries(fm)) {
 				if (!standardKeys.has(key)) {
 					const num = typeof val === 'number' ? val : Number(val);
 					if (!isNaN(num)) {
-						try {
-							await client.updateReputation(targetWorldId, characterId, key, num);
-						} catch (repErr) {
-							console.warn(`Guild Obsidian: Failed to push reputation ${key}:`, repErr);
+						const currentVal = currentScores[key] || 0;
+						const delta = num - currentVal;
+						if (delta !== 0) {
+							try {
+								await client.updateReputation(targetWorldId, characterId, key, delta);
+							} catch (repErr) {
+								console.warn(`Guild Obsidian: Failed to push reputation ${key}:`, repErr);
+							}
 						}
 					}
 				}
