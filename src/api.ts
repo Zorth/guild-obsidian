@@ -103,6 +103,10 @@ export class GuildApiClient {
 	}
 
 	private async request<T>(endpoint: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<T> {
+		if ((method === 'POST' || method === 'PATCH') && !this.apiKey) {
+			throw new Error('API Key missing. Please configure your API key in Guild Obsidian settings.');
+		}
+
 		const url = `${this.baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 		
 		const headers: Record<string, string> = {
@@ -117,12 +121,28 @@ export class GuildApiClient {
 			url,
 			method,
 			headers,
-			body: body ? JSON.stringify(body) : undefined
+			body: body ? JSON.stringify(body) : undefined,
+			throw: false
 		};
 
 		const res = await requestUrl(params);
 		if (res.status >= 400) {
-			throw new Error(`API Error [${res.status}]: ${res.text}`);
+			let detail = res.text;
+			try {
+				const jsonErr = res.json as Record<string, unknown>;
+				if (jsonErr && (jsonErr.message || jsonErr.error)) {
+					detail = String(jsonErr.message || jsonErr.error);
+				}
+			} catch {
+				// use raw text
+			}
+
+			if (res.status === 401) {
+				throw new Error(`Unauthorized [401]: ${detail || 'Invalid or missing API Key'}`);
+			} else if (res.status === 403) {
+				throw new Error(`Forbidden [403]: ${detail || 'API Key lacks required permissions for this action'}`);
+			}
+			throw new Error(`API Error [${res.status}]: ${detail}`);
 		}
 		return res.json as T;
 	}
