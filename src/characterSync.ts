@@ -74,7 +74,30 @@ export async function syncSingleCharacter(
 		frontmatterProps[plugin.settings.characterWebsiteLinkPropertyKey] = character.websiteLink;
 	}
 
-	const playerName = extractPlayerName(character);
+	let playerName = extractPlayerName(character);
+
+	if (!playerName) {
+		const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+		try {
+			const detailedChar = await client.getCharacter(character._id);
+			playerName = extractPlayerName(detailedChar);
+		} catch {
+			// ignore
+		}
+
+		if (!playerName && character.userId) {
+			try {
+				const userObj = await (client as any).request(`/user/${character.userId}`).catch(() => null)
+					|| await (client as any).request(`/users/${character.userId}`).catch(() => null);
+				if (userObj && typeof userObj === 'object') {
+					playerName = (userObj.name || userObj.username || userObj.displayName || userObj.user_name || userObj.playerName) as string | undefined;
+				}
+			} catch {
+				// ignore
+			}
+		}
+	}
+
 	const playerKey = plugin.settings.characterPlayerPropertyKey || 'player';
 	if (playerName) {
 		frontmatterProps[playerKey] = playerName;
@@ -105,6 +128,7 @@ export async function syncSingleCharacter(
 
 	if (existingFile instanceof TFile) {
 		await plugin.app.fileManager.processFrontMatter(existingFile, (fm) => {
+			delete fm.userId;
 			Object.assign(fm, frontmatterProps);
 		});
 		return existingFile;
@@ -333,7 +357,11 @@ function extractPlayerName(character: GuildCharacter): string | undefined {
 
 	for (const candidate of candidates) {
 		if (typeof candidate === 'string' && candidate.trim()) {
-			return candidate.trim();
+			const str = candidate.trim();
+			// Exclude raw 24-char hex Mongo ObjectIDs
+			if (!/^[0-9a-fA-F]{24}$/.test(str)) {
+				return str;
+			}
 		}
 		if (typeof candidate === 'object' && candidate !== null) {
 			const obj = candidate as Record<string, unknown>;
