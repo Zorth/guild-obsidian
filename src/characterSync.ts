@@ -30,6 +30,38 @@ export function getCharacterFilePath(plugin: GuildObsidianPlugin, character: Gui
 	return `${folderPath}/${finalFilename}`;
 }
 
+export function getStandardCharacterKeys(plugin: GuildObsidianPlugin): Set<string> {
+	return new Set([
+		plugin.settings.characterIdPropertyKey,
+		plugin.settings.characterNamePropertyKey,
+		plugin.settings.characterLevelPropertyKey,
+		plugin.settings.characterXpPropertyKey,
+		plugin.settings.characterClassPropertyKey,
+		plugin.settings.characterAncestryPropertyKey,
+		plugin.settings.characterSystemPropertyKey,
+		plugin.settings.characterRankPropertyKey,
+		plugin.settings.characterWebsiteLinkPropertyKey,
+		plugin.settings.characterPlayerPropertyKey,
+		plugin.settings.characterReputationPropertyKey,
+		'guild_character_id',
+		'name',
+		'level',
+		'lvl',
+		'xp',
+		'class',
+		'ancestry',
+		'system',
+		'rank',
+		'websiteLink',
+		'player',
+		'userId',
+		'tags',
+		'aliases',
+		'position',
+		'reputation'
+	]);
+}
+
 export async function syncSingleCharacter(
 	plugin: GuildObsidianPlugin,
 	character: GuildCharacter,
@@ -42,6 +74,23 @@ export async function syncSingleCharacter(
 	if (!folder) {
 		await plugin.app.vault.createFolder(folderPath);
 	}
+
+	let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
+	if (!(existingFile instanceof TFile)) {
+		const files = plugin.app.vault.getMarkdownFiles();
+		const idKey = plugin.settings.characterIdPropertyKey || 'guild_character_id';
+		for (const file of files) {
+			const cache = plugin.app.metadataCache.getFileCache(file);
+			if (cache?.frontmatter && cache.frontmatter[idKey] === character._id) {
+				existingFile = file;
+				break;
+			}
+		}
+	}
+
+	const existingFm = (existingFile instanceof TFile)
+		? (plugin.app.metadataCache.getFileCache(existingFile)?.frontmatter || {})
+		: {};
 
 	const frontmatterProps: Record<string, unknown> = {};
 
@@ -80,25 +129,93 @@ export async function syncSingleCharacter(
 		frontmatterProps[playerKey] = playerName;
 	}
 
+	// If characterReputationMap wasn't provided (e.g. single character sync / refresh), fetch world reputation
+	if (!characterReputationMap) {
+		characterReputationMap = new Map<string, Record<string, number>>();
+		const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+		let targetWorldIds: string[] = [];
+		if (plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
+			targetWorldIds = [plugin.settings.selectedWorldId];
+		} else {
+			const worlds = await client.getWorlds().catch(() => []);
+			targetWorldIds = worlds.map(w => w._id);
+		}
+		for (const worldId of targetWorldIds) {
+			try {
+				const repData = await client.getWorldReputation(worldId);
+				parseReputationData(repData, characterReputationMap);
+			} catch {
+				// ignore
+			}
+		}
+	}
+
+	const standardKeys = getStandardCharacterKeys(plugin);
 	const repFromChar = extractCharacterReputation(character);
 	const repFromMap = characterReputationMap?.get(character._id) || {};
-	const mergedRep = { ...repFromChar, ...repFromMap };
+	const mergedRep: Record<string, number | undefined> = { ...repFromChar, ...repFromMap };
 
-	Object.entries(mergedRep).forEach(([factionName, score]) => {
-		if (factionName && typeof score === 'number') {
-			frontmatterProps[factionName] = score;
+	const knownFactions = new Set<string>();
+	knownFactions.add('Rep');
+	knownFactions.add('Kill');
+
+	if (characterReputationMap) {
+		for (const reps of characterReputationMap.values()) {
+			for (const f of Object.keys(reps)) {
+				if (f) knownFactions.add(f);
+			}
 		}
-	});
+	}
+	for (const f of Object.keys(repFromChar)) {
+		if (f) knownFactions.add(f);
+	}
+	for (const f of Object.keys(repFromMap)) {
+		if (f) knownFactions.add(f);
+	}
+	for (const [key, val] of Object.entries(existingFm)) {
+		if (!standardKeys.has(key)) {
+			const num = typeof val === 'number' ? val : Number(val);
+			if (!isNaN(num)) {
+				knownFactions.add(key);
+			}
+		}
+	}
 
-	let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
-	if (!(existingFile instanceof TFile)) {
-		const files = plugin.app.vault.getMarkdownFiles();
-		const idKey = plugin.settings.characterIdPropertyKey || 'guild_character_id';
-		for (const file of files) {
-			const cache = plugin.app.metadataCache.getFileCache(file);
-			if (cache?.frontmatter && cache.frontmatter[idKey] === character._id) {
-				existingFile = file;
-				break;
+	for (const faction of knownFactions) {
+		const fetchedVal = mergedRep[faction];
+		const noteValRaw = existingFm[faction];
+		const noteValNum = typeof noteValRaw === 'number'
+			? noteValRaw
+			: (typeof noteValRaw === 'string' && noteValRaw.trim() !== '' && !isNaN(Number(noteValRaw)) ? Number(noteValRaw) : undefined);
+
+		if (fetchedVal !== undefined && typeof fetchedVal === 'number') {
+			frontmatterProps[faction] = fetchedVal;
+		} else {
+			// Reputation value is not set when fetching
+			if (noteValNum !== undefined && noteValNum !== 0) {
+				// Value already exists in note and is not 0: keep it and try to push to guild
+				frontmatterProps[faction] = noteValNum;
+
+				try {
+					let targetWorldId = (character as any).worldId || (character as any).world_id || (typeof (character as any).world === 'string' ? (character as any).world : (character as any).world?._id);
+					if (!targetWorldId && plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
+						targetWorldId = plugin.settings.selectedWorldId;
+					}
+					if (!targetWorldId) {
+						const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+						const worlds = await client.getWorlds().catch(() => []);
+						targetWorldId = worlds[0]?._id;
+					}
+					if (targetWorldId && plugin.settings.apiKey) {
+						const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+						await client.updateReputation(targetWorldId, character._id, faction, noteValNum);
+					}
+				} catch (err) {
+					console.warn(`Guild Obsidian: Failed to push reputation ${faction} for ${character.name}:`, err);
+				}
+			} else {
+				// Fall back to 0 if not set
+				frontmatterProps[faction] = 0;
 			}
 		}
 	}
@@ -155,6 +272,31 @@ export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: st
 
 	try {
 		await client.updateCharacter(characterId, updateData);
+
+		// Also push reputation values found in note frontmatter
+		const standardKeys = getStandardCharacterKeys(plugin);
+		let targetWorldId = (fm.worldId || fm.world_id || plugin.settings.selectedWorldId) as string | undefined;
+		if (targetWorldId === 'ALL') targetWorldId = undefined;
+		if (!targetWorldId) {
+			const worlds = await client.getWorlds().catch(() => []);
+			targetWorldId = worlds[0]?._id;
+		}
+
+		if (targetWorldId) {
+			for (const [key, val] of Object.entries(fm)) {
+				if (!standardKeys.has(key)) {
+					const num = typeof val === 'number' ? val : Number(val);
+					if (!isNaN(num)) {
+						try {
+							await client.updateReputation(targetWorldId, characterId, key, num);
+						} catch (repErr) {
+							console.warn(`Guild Obsidian: Failed to push reputation ${key}:`, repErr);
+						}
+					}
+				}
+			}
+		}
+
 		new Notice(`Guild Obsidian: Successfully pushed character updates for "${updateData.name || characterId}"`);
 		return true;
 	} catch (err: unknown) {

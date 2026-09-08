@@ -214,6 +214,17 @@ export class GuildApiClient {
 		return this.request<unknown>(`/world/${worldId}/reputation`);
 	}
 
+	async updateReputation(worldId: string, characterId: string, factionName: string, delta: number): Promise<unknown> {
+		return this.request<unknown>('/reputation', 'PATCH', {
+			worldId,
+			characterId,
+			factionName,
+			delta,
+			score: delta,
+			value: delta
+		});
+	}
+
 	// --- The Black Void ---
 	async getListings(type?: 'item' | 'service', status?: 'active' | 'completed'): Promise<GuildBlackVoidListing[]> {
 		const queryParams = new URLSearchParams();
