@@ -34,17 +34,17 @@ https://guild.tarragon.be/api/external/v1
 *   **GET** `/session/:sessionId` - Get detailed session info including attending characters, GM character, and quest.
 *   **GET** `/session/:sessionId/characters` - List attending characters in a session.
 *   **GET** `/session/:sessionId/state` - Get live initiative and clock state.
-*   **POST** `/session` - Create a new session (GM/Admin). Body: `{ date?, startDate?, endDate?, level?, maxPlayers, system, location?, planning?, worldId? }`.
+*   **POST** `/session` - Create a new session (GM/Admin). Body: `{ date?, level?, maxPlayers, system, location?, planning?, worldId? }`.
 *   **POST** `/session/:sessionId/loot` - Add loot item to a session (Owner/Admin). Body: `{ name, valueGP, isGood, isPerCharacter?, link?, quantity? }`.
 *   **POST** `/session/:sessionId/commendation` - Submit a character commendation. Body: `{ toCharacterId, category }`.
-*   **PATCH** `/session/:sessionId` - Update session parameters (Owner/Admin). Body: `{ date?, startDate?, endDate?, level?, maxPlayers?, location?, locked?, planning? }`.
+*   **PATCH** `/session/:sessionId` - Update session parameters (Owner/Admin). Body: `{ date?, level?, maxPlayers?, location?, locked?, planning? }`.
 *   **PATCH** `/session/:sessionId/state` - Update initiative/clock (Owner/Admin). Body: `{ initiative?, currentIndex?, round?, timeSeconds?, isClockRunning?, multiplier? }`.
 
 ### Characters
 *   **GET** `/characters?userId=...` - List characters owned by a user.
 *   **GET** `/character/:characterId` - Get full character details.
-*   **POST** `/character` - Create a new character for your account (starts at level 1, 0 XP). Body: `{ name, ancestry?, class?, system?, websiteLink?, rank?, title? }`.
-*   **PATCH** `/character/:characterId` - Update character details (Owner/Admin only; XP and Level cannot be modified via API). Body: `{ name?, ancestry?, class?, websiteLink?, rank?, title? }`.
+*   **POST** `/character` - Create a new character for your account (starts at level 1, 0 XP). Body: `{ name, ancestry?, class?, system?, websiteLink? }`.
+*   **PATCH** `/character/:characterId` - Update character details (Owner/Admin only; XP and Level cannot be modified via API). Body: `{ name?, ancestry?, class?, websiteLink? }`.
 
 ### Worlds & Quests
 *   **GET** `/worlds` - List all campaign worlds.
@@ -65,7 +65,7 @@ https://guild.tarragon.be/api/external/v1
 *   **POST** `/black-void/bid` - Place a bid or buyout on an item listing (Owner of character). Body: `{ listingId, characterId, amount, isBuyout }`.
 
 ### Reputation
-*   **GET** `/world/:worldId/reputation` - Get all reputation scores for characters in a world. Reputation values default to `0` when unset.
+*   **GET** `/world/:worldId/reputation` - Get all reputation scores for characters in a world.
 *   **PATCH** `/reputation` - Update character reputation (World Owner/Admin). Body: `{ worldId, characterId, factionName, delta }`.
 
 ### Availability & Player Schedule
@@ -84,25 +84,6 @@ https://guild.tarragon.be/api/external/v1
 
 ## Data Models
 
-### Session
-```json
-{
-  "_id": "s7...",
-  "date": "2026-09-10T18:00:00.000Z",
-  "startDate": "2026-09-10T18:00:00.000Z",
-  "endDate": "2026-09-10T22:00:00.000Z",
-  "level": 3,
-  "maxPlayers": 5,
-  "system": "PF",
-  "location": "The Void Tavern",
-  "planning": "Infiltration of the citadel",
-  "worldId": "wd7...",
-  "worldName": "Sythian",
-  "attendingCharacters": ["c1...", "c2..."],
-  "gmCharacterId": "c0..."
-}
-```
-
 ### Character
 ```json
 {
@@ -116,15 +97,10 @@ https://guild.tarragon.be/api/external/v1
   "class": "Fighter",
   "system": "PF",
   "userId": "user_...",
-  "rank": "Apprentice",
-  "websiteLink": "https://...",
-  "reputation": {
-    "Rep": 10,
-    "Kill": 5
-  }
+  "rank": "journeyman",
+  "websiteLink": "https://..."
 }
 ```
-> *Note*: If `rank` is unset or `'none'`, it defaults to `'Apprentice'`. Reputation values (such as `Rep` and `Kill`) default to `0` when unset.
 
 ### Black Void Item Listing
 ```json
@@ -156,17 +132,7 @@ https://guild.tarragon.be/api/external/v1
   "reward": "50gp",
   "tags": ["stealth", "urban"],
   "owner": "user_...",
-  "characterId": "c7...",
   "isCompleted": false
-}
-```
-
-### World
-```json
-{
-  "_id": "wd7...",
-  "name": "Sythian",
-  "description": "A mystical campaign world."
 }
 ```
 
