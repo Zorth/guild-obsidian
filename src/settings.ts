@@ -40,7 +40,6 @@ export interface GuildObsidianSettings {
 	characterSystemPropertyKey: string;
 	characterRankPropertyKey: string;
 	characterWebsiteLinkPropertyKey: string;
-	characterUserIdPropertyKey: string;
 	characterPlayerPropertyKey: string;
 	characterReputationPropertyKey: string;
 
@@ -91,7 +90,6 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 	characterSystemPropertyKey: 'system',
 	characterRankPropertyKey: 'rank',
 	characterWebsiteLinkPropertyKey: 'websiteLink',
-	characterUserIdPropertyKey: 'userId',
 	characterPlayerPropertyKey: 'player',
 	characterReputationPropertyKey: 'reputation',
 
@@ -464,17 +462,6 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.characterWebsiteLinkPropertyKey)
 				.onChange(async (value) => {
 					this.plugin.settings.characterWebsiteLinkPropertyKey = value.trim();
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('User ID Field Key')
-			.setDesc('Property for User ID.')
-			.addText(text => text
-				.setPlaceholder('userId')
-				.setValue(this.plugin.settings.characterUserIdPropertyKey)
-				.onChange(async (value) => {
-					this.plugin.settings.characterUserIdPropertyKey = value.trim();
 					await this.plugin.saveSettings();
 				}));
 

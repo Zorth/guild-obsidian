@@ -13,6 +13,8 @@ export function getCharacterFilePath(plugin: GuildObsidianPlugin, character: Gui
 	const folderPath = plugin.settings.charactersFolder.trim().replace(/^\/+|\/+$/g, '') || 'Characters';
 	let pattern = plugin.settings.characterFilenameFormat.trim() || '{name}';
 
+	const effectiveRank = (!character.rank || character.rank.trim().toLowerCase() === 'none') ? 'Apprentice' : character.rank;
+
 	pattern = pattern
 		.replace('{name}', character.name)
 		.replace('{id}', character._id)
@@ -21,7 +23,7 @@ export function getCharacterFilePath(plugin: GuildObsidianPlugin, character: Gui
 		.replace('{class}', character.class || '')
 		.replace('{ancestry}', character.ancestry || '')
 		.replace('{system}', character.system || '')
-		.replace('{rank}', character.rank || '');
+		.replace('{rank}', effectiveRank);
 
 	const sanitizedFilename = pattern.replace(/[/\\?%*:|"<>]/g, '-').trim();
 	const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`;
@@ -64,14 +66,12 @@ export async function syncSingleCharacter(
 	if (plugin.settings.characterSystemPropertyKey && character.system) {
 		frontmatterProps[plugin.settings.characterSystemPropertyKey] = character.system;
 	}
-	if (plugin.settings.characterRankPropertyKey && character.rank) {
-		frontmatterProps[plugin.settings.characterRankPropertyKey] = character.rank;
+	if (plugin.settings.characterRankPropertyKey) {
+		const effectiveRank = (!character.rank || character.rank.trim().toLowerCase() === 'none') ? 'Apprentice' : character.rank;
+		frontmatterProps[plugin.settings.characterRankPropertyKey] = effectiveRank;
 	}
 	if (plugin.settings.characterWebsiteLinkPropertyKey && character.websiteLink) {
 		frontmatterProps[plugin.settings.characterWebsiteLinkPropertyKey] = character.websiteLink;
-	}
-	if (plugin.settings.characterUserIdPropertyKey && character.userId) {
-		frontmatterProps[plugin.settings.characterUserIdPropertyKey] = character.userId;
 	}
 
 	const playerName = extractPlayerName(character);
