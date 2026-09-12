@@ -3,7 +3,7 @@ import { GuildObsidianSettings, DEFAULT_SETTINGS, GuildObsidianSettingTab } from
 import { GuildView, GUILD_VIEW_TYPE } from './views/GuildView';
 import { GuildApiClient } from './api';
 import { syncSessions } from './sessionSync';
-import { syncCharacters } from './characterSync';
+import { syncCharacters, updateLocalCharacterRankTags } from './characterSync';
 
 export default class GuildObsidianPlugin extends Plugin {
 	settings: GuildObsidianSettings;
@@ -49,6 +49,14 @@ export default class GuildObsidianPlugin extends Plugin {
 			name: 'Sync Character Notes',
 			callback: async () => {
 				await syncCharacters(this);
+			}
+		});
+
+		this.addCommand({
+			id: 'guild-update-character-tags',
+			name: 'Update Character Rank Tags in Vault',
+			callback: async () => {
+				await updateLocalCharacterRankTags(this);
 			}
 		});
 
@@ -99,9 +107,20 @@ export default class GuildObsidianPlugin extends Plugin {
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		if (this.settings.enableQuests === undefined && this.settings.enableWorlds !== undefined) {
+			this.settings.enableQuests = this.settings.enableWorlds;
+		}
+		if (this.settings.enableWorlds === undefined && this.settings.enableQuests !== undefined) {
+			this.settings.enableWorlds = this.settings.enableQuests;
+		}
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		this.app.workspace.getLeavesOfType(GUILD_VIEW_TYPE).forEach(leaf => {
+			if (leaf.view instanceof GuildView) {
+				leaf.view.render();
+			}
+		});
 	}
 }

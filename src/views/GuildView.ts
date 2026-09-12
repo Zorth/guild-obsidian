@@ -9,7 +9,7 @@ export const GUILD_VIEW_TYPE = 'guild-sidebar-view';
 
 export class GuildView extends ItemView {
 	plugin: GuildObsidianPlugin;
-	private activeTab: 'sessions' | 'characters' | 'worlds' | 'market' = 'sessions';
+	private activeTab: 'sessions' | 'characters' | 'worlds' = 'sessions';
 
 	constructor(leaf: WorkspaceLeaf, plugin: GuildObsidianPlugin) {
 		super(leaf);
@@ -52,12 +52,28 @@ export class GuildView extends ItemView {
 
 		// Navigation Tabs: Sessions main tab first
 		const nav = container.createEl('div', { cls: 'guild-nav-tabs' });
-		const tabs: Array<{ id: 'sessions' | 'characters' | 'worlds' | 'market'; label: string }> = [
+		const allTabs: Array<{ id: 'sessions' | 'characters' | 'worlds'; label: string }> = [
 			{ id: 'sessions', label: 'Sessions' },
 			{ id: 'characters', label: 'Characters' },
-			{ id: 'worlds', label: worldsTabLabel },
-			{ id: 'market', label: 'Black Void' }
+			{ id: 'worlds', label: worldsTabLabel }
 		];
+		const tabs = allTabs.filter(tab => {
+			if (tab.id === 'sessions') return this.plugin.settings.enableSessions;
+			if (tab.id === 'characters') return this.plugin.settings.enableCharacters;
+			if (tab.id === 'worlds') return this.plugin.settings.enableWorlds ?? this.plugin.settings.enableQuests;
+			return true;
+		});
+
+		if (tabs.length === 0) {
+			const emptyMsg = container.createEl('div', { cls: 'guild-card-list' });
+			emptyMsg.createEl('p', { text: 'All tabs are disabled in plugin settings.', cls: 'guild-card-empty' });
+			return;
+		}
+
+		// Ensure activeTab is valid
+		if (!tabs.some(t => t.id === this.activeTab)) {
+			this.activeTab = tabs[0].id;
+		}
 
 		tabs.forEach(tab => {
 			const btn = nav.createEl('button', {
@@ -81,8 +97,6 @@ export class GuildView extends ItemView {
 				await this.renderCharacters(content, client);
 			} else if (this.activeTab === 'worlds') {
 				await this.renderWorldsAndQuests(content, client, isWorldSelected);
-			} else if (this.activeTab === 'market') {
-				await this.renderMarket(content, client);
 			}
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -297,18 +311,7 @@ export class GuildView extends ItemView {
 		});
 	}
 
-	private async renderMarket(container: HTMLElement, client: GuildApiClient) {
-		const listings = await client.getListings('item', 'active').catch(() => []);
-		container.createEl('h5', { text: `The Black Void - Active Listings (${listings.length})` });
 
-		const list = container.createEl('div', { cls: 'guild-card-list' });
-		listings.forEach(item => {
-			const card = list.createEl('div', { cls: 'guild-card' });
-			card.createEl('strong', { text: item.name });
-			if (item.buyoutPrice) card.createEl('p', { text: `Buyout: ${item.buyoutPrice} gp | Starting Bid: ${item.startingBid || '-'} gp` });
-			if (item.sellerName) card.createEl('small', { text: `Seller: ${item.sellerName}` });
-		});
-	}
 
 	private findFileForSession(session: GuildSession): TFile | null {
 		const filePath = getSessionFilePath(this.plugin, session);

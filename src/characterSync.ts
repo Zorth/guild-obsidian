@@ -64,6 +64,134 @@ export function getStandardCharacterKeys(plugin: GuildObsidianPlugin): Set<strin
 	]);
 }
 
+export function sanitizeTag(tag: string): string {
+	return tag.trim().replace(/^#+/, '').replace(/\s+/g, '-');
+}
+
+export function parseRankTagMappings(mappingText: string): Map<string, string> {
+	const map = new Map<string, string>();
+	if (!mappingText) return map;
+	const lines = mappingText.split('\n');
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+		const colonIdx = trimmed.indexOf(':');
+		if (colonIdx > 0) {
+			const rank = trimmed.substring(0, colonIdx).trim().toLowerCase();
+			const tag = trimmed.substring(colonIdx + 1).trim();
+			if (rank && tag) {
+				map.set(rank, sanitizeTag(tag));
+			}
+		}
+	}
+	return map;
+}
+
+export function buildRankTagRegex(pattern: string): RegExp | null {
+	const sanitized = pattern.trim().replace(/^#+/, '');
+	if (!sanitized.toLowerCase().includes('{rank}')) {
+		return null;
+	}
+	const escaped = sanitized
+		.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		.replace(/\\\{rank\\\}/gi, '[a-zA-Z0-9_\\-]+');
+	return new RegExp(`^${escaped}$`, 'i');
+}
+
+export function getRankTagForRank(plugin: GuildObsidianPlugin, rank: string): string {
+	const effectiveRank = (!rank || rank.trim().toLowerCase() === 'none') ? 'Apprentice' : rank.trim();
+
+	// Check custom mappings first
+	if (plugin.settings.characterRankTagMapping) {
+		const mapping = parseRankTagMappings(plugin.settings.characterRankTagMapping);
+		const mapped = mapping.get(effectiveRank.toLowerCase());
+		if (mapped) {
+			return sanitizeTag(mapped);
+		}
+	}
+
+	// Pattern fallback
+	const pattern = plugin.settings.characterRankTagPattern?.trim() || 'character/{rank}';
+	const slug = effectiveRank.toLowerCase().replace(/\s+/g, '-');
+	const capitalized = effectiveRank.charAt(0).toUpperCase() + effectiveRank.slice(1);
+
+	const result = pattern
+		.replace(/\{rank\}/g, slug)
+		.replace(/\{Rank\}/g, capitalized)
+		.replace(/\{RANK\}/g, effectiveRank.toUpperCase())
+		.replace(/\{raw_rank\}/g, effectiveRank);
+
+	return sanitizeTag(result);
+}
+
+export function getCharacterRankTag(plugin: GuildObsidianPlugin, character: GuildCharacter): string {
+	const rawRank = character.rank || 'Apprentice';
+	return getRankTagForRank(plugin, rawRank);
+}
+
+export function isRankTag(plugin: GuildObsidianPlugin, tag: string): boolean {
+	const sanitized = sanitizeTag(tag).toLowerCase();
+	if (!sanitized) return false;
+
+	// Check custom mappings
+	if (plugin.settings.characterRankTagMapping) {
+		const mapping = parseRankTagMappings(plugin.settings.characterRankTagMapping);
+		for (const mappedTag of mapping.values()) {
+			if (sanitizeTag(mappedTag).toLowerCase() === sanitized) {
+				return true;
+			}
+		}
+	}
+
+	// Check against pattern regex
+	const pattern = plugin.settings.characterRankTagPattern?.trim() || 'character/{rank}';
+	const regex = buildRankTagRegex(pattern);
+	if (regex && regex.test(sanitized)) {
+		return true;
+	}
+
+	// Fallback check against common ranks
+	const commonRanks = ['apprentice', 'journeyman', 'master', 'grandmaster', 'novice', 'veteran', 'leader'];
+	for (const r of commonRanks) {
+		const testTag = getRankTagForRank(plugin, r).toLowerCase();
+		if (testTag === sanitized) return true;
+	}
+
+	return false;
+}
+
+export function updateFrontmatterTags(
+	fm: Record<string, unknown>,
+	newTag: string,
+	isRankTagFn: (tag: string) => boolean
+): void {
+	let existingTags: string[] = [];
+
+	if (Array.isArray(fm.tags)) {
+		existingTags = fm.tags.map(t => sanitizeTag(String(t))).filter(Boolean);
+	} else if (typeof fm.tags === 'string' && fm.tags.trim()) {
+		existingTags = fm.tags.split(/[, ]+/).map(t => sanitizeTag(t)).filter(Boolean);
+	} else if (Array.isArray(fm.tag)) {
+		existingTags = fm.tag.map(t => sanitizeTag(String(t))).filter(Boolean);
+		delete fm.tag;
+	} else if (typeof fm.tag === 'string' && fm.tag.trim()) {
+		existingTags = fm.tag.split(/[, ]+/).map(t => sanitizeTag(t)).filter(Boolean);
+		delete fm.tag;
+	}
+
+	const cleanNewTag = sanitizeTag(newTag);
+
+	// Filter out other rank tags, preserving non-rank tags
+	const updatedTags = existingTags.filter(t => !isRankTagFn(t) || t.toLowerCase() === cleanNewTag.toLowerCase());
+
+	// Add cleanNewTag if not already present
+	if (cleanNewTag && !updatedTags.some(t => t.toLowerCase() === cleanNewTag.toLowerCase())) {
+		updatedTags.push(cleanNewTag);
+	}
+
+	fm.tags = updatedTags;
+}
+
 export async function syncSingleCharacter(
 	plugin: GuildObsidianPlugin,
 	character: GuildCharacter,
@@ -225,20 +353,30 @@ export async function syncSingleCharacter(
 		}
 	}
 
+	let targetFile: TFile;
 	if (existingFile instanceof TFile) {
-		await plugin.app.fileManager.processFrontMatter(existingFile, (fm) => {
-			delete fm.userId;
-			Object.assign(fm, frontmatterProps);
-		});
-		return existingFile;
+		targetFile = existingFile;
 	} else {
-		return await createNoteFromTemplate(
+		targetFile = await createNoteFromTemplate(
 			plugin.app,
 			filePath,
 			plugin.settings.characterTemplateFilePath,
 			frontmatterProps
 		);
 	}
+
+	await plugin.app.fileManager.processFrontMatter(targetFile, (fm) => {
+		delete fm.userId;
+		Object.assign(fm, frontmatterProps);
+		if (plugin.settings.enableCharacterRankTags) {
+			const rankTag = getCharacterRankTag(plugin, character);
+			if (rankTag) {
+				updateFrontmatterTags(fm, rankTag, (t) => isRankTag(plugin, t));
+			}
+		}
+	});
+
+	return targetFile;
 }
 
 export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: string): Promise<boolean> {
@@ -536,4 +674,36 @@ function extractPlayerName(character: GuildCharacter): string | undefined {
 	}
 
 	return undefined;
+}
+
+export async function updateLocalCharacterRankTags(plugin: GuildObsidianPlugin): Promise<number> {
+	if (!plugin.settings.enableCharacterRankTags) {
+		new Notice('Guild Obsidian: Rank tags are currently disabled in settings.');
+		return 0;
+	}
+
+	const files = plugin.app.vault.getMarkdownFiles();
+	const idKey = plugin.settings.characterIdPropertyKey || 'guild_character_id';
+	const rankKey = plugin.settings.characterRankPropertyKey || 'rank';
+	const folderPath = plugin.settings.charactersFolder.trim().replace(/^\/+|\/+$/g, '') || 'Characters';
+	let updatedCount = 0;
+
+	for (const file of files) {
+		const cache = plugin.app.metadataCache.getFileCache(file);
+		const fm = cache?.frontmatter;
+		const isInCharactersFolder = file.path.startsWith(folderPath + '/');
+		if (fm && (fm[idKey] || isInCharactersFolder) && (fm[rankKey] !== undefined || isInCharactersFolder)) {
+			const currentRank = String(fm[rankKey] || 'Apprentice');
+			const rankTag = getRankTagForRank(plugin, currentRank);
+			if (rankTag) {
+				await plugin.app.fileManager.processFrontMatter(file, (matter) => {
+					updateFrontmatterTags(matter, rankTag, (t) => isRankTag(plugin, t));
+				});
+				updatedCount++;
+			}
+		}
+	}
+
+	new Notice(`Guild Obsidian: Updated rank tags on ${updatedCount} character notes.`);
+	return updatedCount;
 }

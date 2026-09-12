@@ -2,12 +2,17 @@ import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import GuildObsidianPlugin from './main';
 import { GuildApiClient, GuildWorld } from './api';
 import { syncSessions } from './sessionSync';
-import { syncCharacters } from './characterSync';
+import { syncCharacters, updateLocalCharacterRankTags } from './characterSync';
 import { FolderSuggest, FileSuggest } from './suggest';
 
 export interface GuildObsidianSettings {
 	apiUrl: string;
 	apiKey: string;
+
+	enableSessions: boolean;
+	enableCharacters: boolean;
+	enableWorlds: boolean;
+	enableQuests: boolean;
 
 	// Campaign World
 	selectedWorldId: string;
@@ -44,6 +49,11 @@ export interface GuildObsidianSettings {
 	characterPlayerPropertyKey: string;
 	characterReputationPropertyKey: string;
 
+	// Character Rank Tags
+	enableCharacterRankTags: boolean;
+	characterRankTagPattern: string;
+	characterRankTagMapping: string;
+
 	// Quest Sync Settings
 	questsFolder: string;
 	questFilenameFormat: string;
@@ -64,6 +74,11 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 	apiKey: '',
 
 	selectedWorldId: 'ALL',
+
+	enableSessions: true,
+	enableCharacters: true,
+	enableWorlds: true,
+	enableQuests: true,
 
 	// Sessions
 	sessionsFolder: 'Sessions',
@@ -94,6 +109,11 @@ export const DEFAULT_SETTINGS: GuildObsidianSettings = {
 	characterWebsiteLinkPropertyKey: 'websiteLink',
 	characterPlayerPropertyKey: 'player',
 	characterReputationPropertyKey: 'reputation',
+
+	// Character Rank Tags
+	enableCharacterRankTags: true,
+	characterRankTagPattern: 'character/{rank}',
+	characterRankTagMapping: '',
 
 	// Quests
 	questsFolder: 'Quests',
@@ -191,6 +211,40 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 			});
 		});
+
+		// --- Sidebar Tabs Visibility ---
+		containerEl.createEl('h3', { text: 'Sidebar Tabs' });
+
+		new Setting(containerEl)
+			.setName('Enable Sessions Tab')
+			.setDesc('Show Sessions tab in the sidebar view.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableSessions)
+				.onChange(async (value) => {
+					this.plugin.settings.enableSessions = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Enable Characters Tab')
+			.setDesc('Show Characters tab in the sidebar view.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableCharacters)
+				.onChange(async (value) => {
+					this.plugin.settings.enableCharacters = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Enable Quests Tab')
+			.setDesc('Show Quests (or Worlds & Quests) tab in the sidebar view.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableWorlds ?? this.plugin.settings.enableQuests ?? true)
+				.onChange(async (value) => {
+					this.plugin.settings.enableWorlds = value;
+					this.plugin.settings.enableQuests = value;
+					await this.plugin.saveSettings();
+				}));
 
 		// --- Session Sync Settings ---
 		containerEl.createEl('h3', { text: 'Session Synchronization Settings' });
@@ -363,6 +417,54 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 				.setCta()
 				.onClick(async () => {
 					await syncCharacters(this.plugin);
+				}));
+
+		// --- Character Rank Tags ---
+		containerEl.createEl('h4', { text: 'Character Rank Tags' });
+
+		new Setting(containerEl)
+			.setName('Add Rank Tags to Characters')
+			.setDesc('Automatically add a tag to character frontmatter based on their Guild rank (e.g. #character/apprentice, #character/journeyman).')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableCharacterRankTags)
+				.onChange(async (value) => {
+					this.plugin.settings.enableCharacterRankTags = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Rank Tag Pattern')
+			.setDesc('Pattern for rank tags. Placeholders: {rank} (lowercased slug, e.g. "apprentice"), {Rank} (capitalized).')
+			.addText(text => text
+				.setPlaceholder('character/{rank}')
+				.setValue(this.plugin.settings.characterRankTagPattern)
+				.onChange(async (value) => {
+					this.plugin.settings.characterRankTagPattern = value.trim() || 'character/{rank}';
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Custom Rank Tag Mappings')
+			.setDesc('Optional overrides per rank (one per line, e.g. "Apprentice: character/apprentice" or "Journeyman: character/journeyman"). Overrides the pattern above.')
+			.addTextArea(text => {
+				text
+					.setPlaceholder('Apprentice: character/apprentice\nJourneyman: character/journeyman')
+					.setValue(this.plugin.settings.characterRankTagMapping)
+					.onChange(async (value) => {
+						this.plugin.settings.characterRankTagMapping = value;
+						await this.plugin.saveSettings();
+					});
+				text.inputEl.rows = 3;
+				text.inputEl.cols = 30;
+			});
+
+		new Setting(containerEl)
+			.setName('Update Local Character Rank Tags')
+			.setDesc('Apply current rank tag settings to all local character notes in vault now without fetching from API.')
+			.addButton(button => button
+				.setButtonText('🏷️ Update Character Tags')
+				.onClick(async () => {
+					await updateLocalCharacterRankTags(this.plugin);
 				}));
 
 		// Configurable Character Frontmatter Property Keys
