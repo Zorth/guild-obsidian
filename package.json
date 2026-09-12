@@ -1,6 +1,6 @@
 {
   "name": "guild-obsidian",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Guild Obsidian plugin",
   "main": "main.js",
   "scripts": {

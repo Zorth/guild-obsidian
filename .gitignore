@@ -3,3 +3,4 @@ main.js
 *.css.map
 .DS_Store
 /data.json
+*.zip
