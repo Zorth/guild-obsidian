@@ -262,93 +262,79 @@ export async function syncSingleCharacter(
 		frontmatterProps[playerKey] = playerName;
 	}
 
-	// If characterReputationMap wasn't provided (e.g. single character sync / refresh), fetch world reputation
-	if (!characterReputationMap) {
-		characterReputationMap = new Map<string, Record<string, number>>();
-		const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
-		let targetWorldIds: string[] = [];
-		if (plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
-			targetWorldIds = [plugin.settings.selectedWorldId];
-		} else {
-			const worlds = await client.getWorlds().catch(() => []);
-			targetWorldIds = worlds.map(w => w._id);
-		}
-		for (const worldId of targetWorldIds) {
+	// Only import character reputation if a specific campaign world is selected (not 'ALL' or empty)
+	const isSpecificWorldSelected = Boolean(
+		plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL'
+	);
+
+	if (isSpecificWorldSelected) {
+		if (!characterReputationMap) {
+			characterReputationMap = new Map<string, Record<string, number>>();
+			const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
 			try {
-				const repData = await client.getWorldReputation(worldId);
+				const repData = await client.getWorldReputation(plugin.settings.selectedWorldId);
 				parseReputationData(repData, characterReputationMap);
 			} catch {
 				// ignore
 			}
 		}
-	}
 
-	const standardKeys = getStandardCharacterKeys(plugin);
-	const repFromChar = extractCharacterReputation(character);
-	const repFromMap = characterReputationMap?.get(character._id) || {};
-	const mergedRep: Record<string, number | undefined> = { ...repFromChar, ...repFromMap };
+		const standardKeys = getStandardCharacterKeys(plugin);
+		const repFromChar = extractCharacterReputation(character);
+		const repFromMap = characterReputationMap?.get(character._id) || {};
+		const mergedRep: Record<string, number | undefined> = { ...repFromChar, ...repFromMap };
 
-	const knownFactions = new Set<string>();
-	knownFactions.add('Rep');
-	knownFactions.add('Kill');
+		const knownFactions = new Set<string>();
+		knownFactions.add('Rep');
+		knownFactions.add('Kill');
 
-	if (characterReputationMap) {
-		for (const reps of characterReputationMap.values()) {
-			for (const f of Object.keys(reps)) {
-				if (f) knownFactions.add(f);
-			}
-		}
-	}
-	for (const f of Object.keys(repFromChar)) {
-		if (f) knownFactions.add(f);
-	}
-	for (const f of Object.keys(repFromMap)) {
-		if (f) knownFactions.add(f);
-	}
-	for (const [key, val] of Object.entries(existingFm)) {
-		if (!standardKeys.has(key)) {
-			const num = typeof val === 'number' ? val : Number(val);
-			if (!isNaN(num)) {
-				knownFactions.add(key);
-			}
-		}
-	}
-
-	for (const faction of knownFactions) {
-		const fetchedVal = mergedRep[faction];
-		const noteValRaw = existingFm[faction];
-		const noteValNum = typeof noteValRaw === 'number'
-			? noteValRaw
-			: (typeof noteValRaw === 'string' && noteValRaw.trim() !== '' && !isNaN(Number(noteValRaw)) ? Number(noteValRaw) : undefined);
-
-		if (fetchedVal !== undefined && typeof fetchedVal === 'number') {
-			frontmatterProps[faction] = fetchedVal;
-		} else {
-			// Reputation value is not set when fetching
-			if (noteValNum !== undefined && noteValNum !== 0) {
-				// Value already exists in note and is not 0: keep it and try to push to guild
-				frontmatterProps[faction] = noteValNum;
-
-				try {
-					let targetWorldId = (character as any).worldId || (character as any).world_id || (typeof (character as any).world === 'string' ? (character as any).world : (character as any).world?._id);
-					if (!targetWorldId && plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
-						targetWorldId = plugin.settings.selectedWorldId;
-					}
-					if (!targetWorldId) {
-						const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
-						const worlds = await client.getWorlds().catch(() => []);
-						targetWorldId = worlds[0]?._id;
-					}
-					if (targetWorldId && plugin.settings.apiKey) {
-						const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
-						await client.updateReputation(targetWorldId, character._id, faction, noteValNum);
-					}
-				} catch (err) {
-					console.warn(`Guild Obsidian: Failed to push reputation ${faction} for ${character.name}:`, err);
+		if (characterReputationMap) {
+			for (const reps of characterReputationMap.values()) {
+				for (const f of Object.keys(reps)) {
+					if (f) knownFactions.add(f);
 				}
+			}
+		}
+		for (const f of Object.keys(repFromChar)) {
+			if (f) knownFactions.add(f);
+		}
+		for (const f of Object.keys(repFromMap)) {
+			if (f) knownFactions.add(f);
+		}
+		for (const [key, val] of Object.entries(existingFm)) {
+			if (!standardKeys.has(key)) {
+				const num = typeof val === 'number' ? val : Number(val);
+				if (!isNaN(num)) {
+					knownFactions.add(key);
+				}
+			}
+		}
+
+		for (const faction of knownFactions) {
+			const fetchedVal = mergedRep[faction];
+			const noteValRaw = existingFm[faction];
+			const noteValNum = typeof noteValRaw === 'number'
+				? noteValRaw
+				: (typeof noteValRaw === 'string' && noteValRaw.trim() !== '' && !isNaN(Number(noteValRaw)) ? Number(noteValRaw) : undefined);
+
+			if (fetchedVal !== undefined && typeof fetchedVal === 'number') {
+				frontmatterProps[faction] = fetchedVal;
 			} else {
-				// Fall back to 0 if not set
-				frontmatterProps[faction] = 0;
+				// Reputation value is not set when fetching
+				if (noteValNum !== undefined && noteValNum !== 0) {
+					// Value already exists in note and is not 0: keep it and try to push to guild
+					frontmatterProps[faction] = noteValNum;
+
+					try {
+						const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+						await client.updateReputation(plugin.settings.selectedWorldId, character._id, faction, noteValNum);
+					} catch (err) {
+						console.warn(`Guild Obsidian: Failed to push reputation ${faction} for ${character.name}:`, err);
+					}
+				} else {
+					// Fall back to 0 if not set
+					frontmatterProps[faction] = 0;
+				}
 			}
 		}
 	}
@@ -431,12 +417,7 @@ export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: st
 
 		// Also push reputation values found in note frontmatter
 		const standardKeys = getStandardCharacterKeys(plugin);
-		let targetWorldId = (fm.worldId || fm.world_id || plugin.settings.selectedWorldId) as string | undefined;
-		if (targetWorldId === 'ALL') targetWorldId = undefined;
-		if (!targetWorldId) {
-			const worlds = await client.getWorlds().catch(() => []);
-			targetWorldId = worlds[0]?._id;
-		}
+		let targetWorldId = (fm.worldId || fm.world_id || (plugin.settings.selectedWorldId !== 'ALL' ? plugin.settings.selectedWorldId : undefined)) as string | undefined;
 
 		if (targetWorldId) {
 			const currentScores: Record<string, number> = {};
@@ -494,26 +475,17 @@ export async function syncCharacters(plugin: GuildObsidianPlugin): Promise<Chara
 	}
 
 	const characterReputationMap = new Map<string, Record<string, number>>();
+	const isSpecificWorldSelected = Boolean(
+		plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL'
+	);
 
-	try {
-		let targetWorldIds: string[] = [];
-		if (plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
-			targetWorldIds = [plugin.settings.selectedWorldId];
-		} else {
-			const worlds = await client.getWorlds().catch(() => []);
-			targetWorldIds = worlds.map(w => w._id);
+	if (isSpecificWorldSelected) {
+		try {
+			const repData = await client.getWorldReputation(plugin.settings.selectedWorldId);
+			parseReputationData(repData, characterReputationMap);
+		} catch (err) {
+			console.warn('Guild Obsidian: Reputation fetch skipped', err);
 		}
-
-		for (const worldId of targetWorldIds) {
-			try {
-				const repData = await client.getWorldReputation(worldId);
-				parseReputationData(repData, characterReputationMap);
-			} catch {
-				// World might not have reputation system or endpoint failed
-			}
-		}
-	} catch (err) {
-		console.warn('Guild Obsidian: Reputation fetch skipped', err);
 	}
 
 	let createdCount = 0;
