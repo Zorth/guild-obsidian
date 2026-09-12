@@ -160,7 +160,33 @@ export class GuildApiClient {
 		if (worldId && worldId !== 'ALL') queryParams.append('worldId', worldId);
 		if (system) queryParams.append('system', system);
 		const qs = queryParams.toString();
-		return this.request<GuildSession[]>(`/sessions${qs ? `?${qs}` : ''}`);
+		try {
+			return await this.request<GuildSession[]>(`/sessions${qs ? `?${qs}` : ''}`);
+		} catch (err) {
+			// Fallback: if server requires system filter, query both systems in parallel
+			if (!system) {
+				const [pf, dnd] = await Promise.all([
+					this.getSessions(past, worldId, 'PF').catch(() => []),
+					this.getSessions(past, worldId, 'DnD').catch(() => [])
+				]);
+				if (pf.length > 0 || dnd.length > 0) {
+					const map = new Map<string, GuildSession>();
+					for (const s of [...pf, ...dnd]) {
+						map.set(s._id, s);
+					}
+					const getDateNum = (d: unknown) => {
+						if (typeof d === 'number') return d;
+						if (typeof d === 'string') {
+							const t = new Date(d).getTime();
+							return isNaN(t) ? 0 : t;
+						}
+						return 0;
+					};
+					return Array.from(map.values()).sort((a, b) => getDateNum(b.date) - getDateNum(a.date));
+				}
+			}
+			throw err;
+		}
 	}
 
 	async getSession(sessionId: string): Promise<GuildSession> {
