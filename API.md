@@ -55,17 +55,25 @@ https://guild.tarragon.be/api/external/v1
 *   **GET** `/world/:worldId/calendar` - Get world calendar config and current date.
 *   **GET** `/world/:worldId/quests` - List all quests associated with a specific world.
 *   **GET** `/quests` - List all quests (global "The Void" quests + world quests).
-*   **POST** `/quest` - Create a new quest. Body: `{ name, levelPF?, levelDnD?, worldId?, description?, questgiver?, reward?, tags?, characterId? }`.
+*   **GET** `/character-quests?characterId=...` - List character-issued quests (filter by `characterId` or list all).
+*   **POST** `/quest` - Create a new quest. Body: `{ name, levelPF?, levelDnD?, worldId?, description?, questgiver?, reward?, rewardType?: "party" | "per_person", rewardMoneyGP?: number, rewardOther?: string, tags?, characterId? }`.
 *   **PATCH** `/world/:worldId/calendar` - Update world date. Body: `{ year, month, day }`.
-*   **PATCH** `/quest/:questId` - Update quest status or details. Body: `{ isCompleted?, name?, description?, reward? }`.
+*   **PATCH** `/quest/:questId` - Update quest status or details. Body: `{ isCompleted?, name?, description?, reward?, rewardType?, rewardMoneyGP?, rewardOther? }`.
 
 ### The Black Void (Auction House & Market)
 *   **GET** `/black-void/listings?type=item|service&status=active|completed` - List items and crafting services on The Black Void market.
 *   **GET** `/black-void/character/:characterId/transactions` - Get sold items and won auctions for a specific character.
-*   **GET** `/character-quests?characterId=...` - List character-issued quests.
+*   **GET** `/black-void/character/:characterId/log` - Get full character sheet transaction log (created items, won items, services, sponsored quest reimbursements, completed quests to pay, Guildmaster cuts, won/lost bets, current money, and unclaimed count).
 *   **POST** `/black-void/item` - Post an item listing (Owner of character). Body: `{ characterId, name, startingBid?, buyoutPrice?, durationDays, description?, nethysUrl? }`.
-*   **POST** `/black-void/service` - Post a crafting/service listing (Owner of character). Body: `{ characterId, name, priceType, percentage?, markupGp?, priceDetails?, description?, nethysUrl? }`.
+*   **POST** `/black-void/service` - Post a crafting/service listing (Owner of character). Body: `{ characterId, name, priceType, percentage?, markupGp?, priceDetails?, minLevel?, maxLevel?, description?, nethysUrl? }`.
 *   **POST** `/black-void/bid` - Place a bid or buyout on an item listing (Owner of character). Body: `{ listingId, characterId, amount, isBuyout }`.
+*   **PATCH** `/black-void/claim/seller` - Toggle claim state for a sold listing (Owner/Admin). Body: `{ listingId }`.
+*   **PATCH** `/black-void/claim/buyer` - Toggle claim state for a won auction listing (Owner/Admin). Body: `{ listingId }`.
+*   **PATCH** `/black-void/claim/quest` - Toggle claim state for quest reimbursement or payment (Owner/Admin). Body: `{ questId, type: "reimbursement" | "payment" }`.
+*   **PATCH** `/black-void/claim/guildmaster` - Toggle claim state for Guildmaster regional loot compensation (Owner/Admin). Body: `{ sessionId }`.
+*   **PATCH** `/black-void/claim/bet/winner` - Toggle claim state for a won bet (Owner/Admin). Body: `{ betId }`.
+*   **PATCH** `/black-void/claim/bet/loser` - Toggle claim state for a lost bet (Owner/Admin). Body: `{ betId }`.
+*   **PATCH** `/black-void/claim/all` - Mark all log entries for a character as claimed in one transaction (Owner/Admin). Body: `{ characterId }`.
 
 ### Reputation
 *   **GET** `/world/:worldId/reputation` - Get all reputation scores for characters in a world.
@@ -132,7 +140,10 @@ https://guild.tarragon.be/api/external/v1
   "worldId": "wd7...",
   "description": "Help the prisoners escape.",
   "questgiver": "Guard Captain",
-  "reward": "50gp",
+  "reward": "50 GP / person + Scroll of Invisibility",
+  "rewardType": "per_person",
+  "rewardMoneyGP": 50,
+  "rewardOther": "Scroll of Invisibility",
   "tags": ["stealth", "urban"],
   "owner": "user_...",
   "isCompleted": false
