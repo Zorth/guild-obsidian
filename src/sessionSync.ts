@@ -1,12 +1,83 @@
 import { TFile, Notice } from 'obsidian';
 import GuildObsidianPlugin from './main';
-import { GuildApiClient, GuildSession, GuildWorld } from './api';
+import { GuildApiClient, GuildCalendar, GuildCalendarEra, GuildSession, GuildWorld } from './api';
 import { createNoteFromTemplate } from './templateUtils';
 
 export interface SyncResult {
 	created: number;
 	updated: number;
 	total: number;
+}
+
+export function getEraAbbreviation(eraName: string): string {
+	if (!eraName) return '';
+	const minorWords = new Set(['of', 'the', 'and', 'in', 'on', 'at', 'to', 'for', 'a', 'an', 'by', 'de', 'du', 'von', 'van', 'da']);
+	const tokens = eraName.trim().split(/[\s\-_]+/);
+	if (tokens.length === 1) {
+		return tokens[0];
+	}
+	return tokens
+		.map((t, idx) => {
+			const lower = t.toLowerCase();
+			if (idx > 0 && minorWords.has(lower)) {
+				return lower[0];
+			}
+			return t[0].toUpperCase();
+		})
+		.join('');
+}
+
+export function formatInWorldDate(
+	year: number,
+	month: number, // 0-indexed month (0 = month 1)
+	day: number,
+	calendar?: GuildCalendar | null
+): string {
+	let eraAbbr = '';
+	let displayYear = year;
+
+	const eras = calendar?.static_data?.eras;
+	if (eras && eras.length > 0) {
+		const sortedEras = [...eras].sort((a, b) => {
+			const yDiff = (a.date?.year ?? 0) - (b.date?.year ?? 0);
+			if (yDiff !== 0) return yDiff;
+			const mDiff = (a.date?.timespan ?? a.date?.month ?? 0) - (b.date?.timespan ?? b.date?.month ?? 0);
+			if (mDiff !== 0) return mDiff;
+			return (a.date?.day ?? 1) - (b.date?.day ?? 1);
+		});
+
+		let activeEra: GuildCalendarEra | undefined;
+		for (const era of sortedEras) {
+			const eraYear = era.date?.year ?? 0;
+			const eraMonth = era.date?.timespan ?? era.date?.month ?? 0;
+			const eraDay = era.date?.day ?? 1;
+
+			if (
+				year > eraYear ||
+				(year === eraYear && (month > eraMonth || (month === eraMonth && day >= eraDay)))
+			) {
+				activeEra = era;
+			}
+		}
+
+		if (activeEra) {
+			eraAbbr = activeEra.abbreviation || getEraAbbreviation(activeEra.name);
+			if (activeEra.settings?.restart) {
+				displayYear = year - (activeEra.date?.year ?? 0) + 1;
+			} else {
+				displayYear = year;
+			}
+		}
+	}
+
+	const monthNum = month + 1;
+	const formattedMonth = String(monthNum).padStart(2, '0');
+	const formattedDay = String(day).padStart(2, '0');
+
+	if (eraAbbr) {
+		return `${eraAbbr} ${displayYear}/${formattedMonth}/${formattedDay}`;
+	}
+	return `${displayYear}/${formattedMonth}/${formattedDay}`;
 }
 
 export function getSessionFilePath(plugin: GuildObsidianPlugin, session: GuildSession, worldName = 'General'): string {
@@ -36,7 +107,11 @@ export function getSessionFilePath(plugin: GuildObsidianPlugin, session: GuildSe
 	return `${folderPath}/${finalFilename}`;
 }
 
-export async function syncSingleSession(plugin: GuildObsidianPlugin, session: GuildSession): Promise<TFile> {
+export async function syncSingleSession(
+	plugin: GuildObsidianPlugin,
+	session: GuildSession,
+	calendarCache?: Map<string, GuildCalendar | null>
+): Promise<TFile> {
 	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
 	const worlds = await client.getWorlds().catch(() => []);
 	const worldMap = new Map<string, string>();
@@ -51,7 +126,7 @@ export async function syncSingleSession(plugin: GuildObsidianPlugin, session: Gu
 		}
 	});
 
-	let rawWorld: string | undefined = session.worldName || session.worldId || session.world_id || (typeof session.world === 'string' ? session.world : session.world?.name);
+	let rawWorld: string | undefined = session.worldName || session.worldId || session.world_id || (typeof session.world === 'string' ? session.world : session.world?.name || session.world?._id);
 	if (!rawWorld && plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL') {
 		rawWorld = plugin.settings.selectedWorldId;
 	}
@@ -60,6 +135,20 @@ export async function syncSingleSession(plugin: GuildObsidianPlugin, session: Gu
 	if (rawWorld) {
 		const mapped = worldMap.get(rawWorld) || worldMap.get(rawWorld.toLowerCase());
 		worldName = mapped || rawWorld.replace(/\b\w/g, c => c.toUpperCase());
+	}
+
+	const worldId = session.worldId || session.world_id || (typeof session.world === 'string' ? session.world : session.world?._id) || (plugin.settings.selectedWorldId !== 'ALL' ? plugin.settings.selectedWorldId : undefined);
+
+	let calendar: GuildCalendar | null = null;
+	if (worldId) {
+		if (calendarCache && calendarCache.has(worldId)) {
+			calendar = calendarCache.get(worldId) ?? null;
+		} else {
+			calendar = await client.getWorldCalendar(worldId).catch(() => null);
+			if (calendarCache) {
+				calendarCache.set(worldId, calendar);
+			}
+		}
 	}
 
 	const filePath = getSessionFilePath(plugin, session, worldName);
@@ -87,12 +176,34 @@ export async function syncSingleSession(plugin: GuildObsidianPlugin, session: Gu
 		[plugin.settings.playersPropertyKey]: playerWikilinks,
 	};
 
-	const startDateValue = session.startDate || session.date;
+	let startDateValue: string | undefined;
+	let endDateValue: string | undefined;
+
+	if (session.inGameDate && session.inGameDate.year !== undefined && session.inGameDate.month !== undefined && session.inGameDate.day !== undefined) {
+		startDateValue = formatInWorldDate(
+			session.inGameDate.year,
+			session.inGameDate.month,
+			session.inGameDate.day,
+			calendar
+		);
+		const endYear = session.inGameDate.endYear ?? session.inGameDate.year;
+		const endMonth = session.inGameDate.endMonth ?? session.inGameDate.month;
+		const endDay = session.inGameDate.endDay ?? session.inGameDate.day;
+		endDateValue = formatInWorldDate(endYear, endMonth, endDay, calendar);
+	} else if (session.startDate) {
+		startDateValue = session.startDate;
+		endDateValue = session.endDate || session.startDate;
+	} else if (session.date) {
+		const d = new Date(session.date);
+		const formatted = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : String(session.date);
+		startDateValue = formatted;
+		endDateValue = session.endDate || formatted;
+	}
+
 	if (startDateValue) {
 		frontmatterProps[plugin.settings.startDatePropertyKey] = startDateValue;
 	}
 
-	const endDateValue = session.endDate || startDateValue;
 	if (endDateValue) {
 		frontmatterProps[plugin.settings.endDatePropertyKey] = endDateValue;
 	}
@@ -198,8 +309,9 @@ export async function syncSessions(plugin: GuildObsidianPlugin): Promise<SyncRes
 	let createdCount = 0;
 	let updatedCount = 0;
 
+	const calendarCache = new Map<string, GuildCalendar | null>();
 	for (const session of sessions) {
-		const file = await syncSingleSession(plugin, session);
+		const file = await syncSingleSession(plugin, session, calendarCache);
 		if (file) {
 			// Count updated vs created based on stats if needed
 			updatedCount++;

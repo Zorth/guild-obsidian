@@ -1,10 +1,74 @@
 import { requestUrl, RequestUrlParam } from 'obsidian';
 
+export interface GuildInGameDate {
+	day?: number;
+	month?: number;
+	year?: number;
+	endDay?: number;
+	endMonth?: number;
+	endYear?: number;
+}
+
+export interface GuildCalendarEra {
+	name: string;
+	abbreviation?: string;
+	date: {
+		year: number;
+		timespan?: number;
+		month?: number;
+		day?: number;
+		epoch?: number;
+	};
+	settings?: {
+		restart?: boolean;
+		starting_era?: boolean;
+		ends_year?: boolean;
+		use_custom_format?: boolean;
+		[key: string]: unknown;
+	};
+	formatting?: string;
+	description?: string;
+}
+
+export interface GuildCalendarMonth {
+	name: string;
+	length: number;
+	type?: string;
+}
+
+export interface GuildCalendar {
+	name?: string;
+	dynamic_data?: {
+		year?: number;
+		month?: number;
+		timespan?: number;
+		day?: number;
+		current_era?: number;
+		[key: string]: unknown;
+	};
+	static_data?: {
+		eras?: GuildCalendarEra[];
+		year_data?: {
+			first_day?: number;
+			timespans?: GuildCalendarMonth[];
+			[key: string]: unknown;
+		};
+		[key: string]: unknown;
+	};
+}
+
+export interface GuildWorldCalendarResponse {
+	name?: string;
+	calendar?: GuildCalendar;
+	[key: string]: unknown;
+}
+
 export interface GuildSession {
 	_id: string;
-	date?: string;
+	date?: string | number;
 	startDate?: string;
 	endDate?: string;
+	inGameDate?: GuildInGameDate;
 	level?: number;
 	maxPlayers: number;
 	system: 'PF' | 'DnD';
@@ -239,6 +303,18 @@ export class GuildApiClient {
 
 	async getWorld(worldId: string): Promise<GuildWorld> {
 		return this.request<GuildWorld>(`/world/${worldId}`);
+	}
+
+	async getWorldCalendar(worldId: string): Promise<GuildCalendar | null> {
+		try {
+			const res = await this.request<GuildWorldCalendarResponse>(`/world/${worldId}/calendar`);
+			if (res && res.calendar) {
+				return res.calendar;
+			}
+			return (res as unknown as GuildCalendar) || null;
+		} catch {
+			return null;
+		}
 	}
 
 	async getQuests(worldId?: string): Promise<GuildQuest[]> {
