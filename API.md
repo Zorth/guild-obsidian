@@ -34,10 +34,10 @@ https://guild.tarragon.be/api/external/v1
 *   **GET** `/session/:sessionId` - Get detailed session info including attending characters, GM character, and quest.
 *   **GET** `/session/:sessionId/characters` - List attending characters in a session.
 *   **GET** `/session/:sessionId/state` - Get live initiative and clock state.
-*   **POST** `/session` - Create a new session (GM/Admin). Body: `{ date?, level?, maxPlayers, system, location?, planning?, worldId? }`.
+*   **POST** `/session` - Create a new session (GM/Admin). Body: `{ date?, level?, maxPlayers, system, location?, planning?, worldId?, inGameDate?: { year, month, day, era?, endYear?, endMonth?, endDay? } }`. *(Note: If `inGameDate` is omitted, it defaults automatically to the campaign world's current calendar date).*
 *   **POST** `/session/:sessionId/loot` - Add loot item to a session (Owner/Admin). Body: `{ name, valueGP, isGood, isPerCharacter?, link?, quantity? }`.
 *   **POST** `/session/:sessionId/commendation` - Submit a character commendation. Body: `{ toCharacterId, category }`.
-*   **PATCH** `/session/:sessionId` - Update session parameters (Owner/Admin). Body: `{ date?, level?, maxPlayers?, location?, locked?, planning? }`.
+*   **PATCH** `/session/:sessionId` - Update session parameters (Owner/Admin). Body: `{ date?, level?, maxPlayers?, location?, locked?, planning?, inGameDate?: { year, month, day, era?, endYear?, endMonth?, endDay? } }`.
 *   **PATCH** `/session/:sessionId/state` - Update initiative/clock (Owner/Admin). Body: `{ initiative?, currentIndex?, round?, timeSeconds?, isClockRunning?, multiplier? }`.
 
 ### Characters
