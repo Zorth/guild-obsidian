@@ -7,6 +7,7 @@ export interface GuildInGameDate {
 	endDay?: number;
 	endMonth?: number;
 	endYear?: number;
+	era?: string;
 }
 
 export interface GuildCalendarEra {
@@ -63,6 +64,37 @@ export interface GuildWorldCalendarResponse {
 	[key: string]: unknown;
 }
 
+export interface GuildSessionLoot {
+	id?: string;
+	name: string;
+	valueGP: number;
+	isGood: boolean;
+	isPerCharacter?: boolean;
+	claimedBy?: string;
+	claimedByCharacters?: string[];
+	link?: string;
+	quantity?: number;
+}
+
+export interface GuildSessionQuote {
+	_id?: string;
+	sessionId?: string;
+	characterId?: string;
+	characterName?: string;
+	quote: string;
+	[key: string]: unknown;
+}
+
+export interface GuildSessionState {
+	initiative?: Array<{ id: string; name: string; counter?: number; [key: string]: unknown }>;
+	currentIndex?: number;
+	round?: number;
+	timeSeconds?: number;
+	isClockRunning?: boolean;
+	multiplier?: number;
+	[key: string]: unknown;
+}
+
 export interface GuildSession {
 	_id: string;
 	date?: string | number;
@@ -73,13 +105,91 @@ export interface GuildSession {
 	maxPlayers: number;
 	system: 'PF' | 'DnD';
 	location?: string;
-	planning?: string;
+	planning?: string | boolean;
+	isPrivate?: boolean;
+	isIntro?: boolean;
+	locked?: boolean;
 	worldId?: string;
 	world_id?: string;
 	worldName?: string;
 	world?: string | { _id?: string; name?: string };
+	owner?: string;
+	characters?: string[];
 	attendingCharacters?: string[];
 	gmCharacterId?: string;
+	voidContribution?: number;
+	pendingVoidContribution?: number;
+	loot?: GuildSessionLoot[];
+}
+
+export interface GuildCharacterHitPoints {
+	max: number;
+	current: number;
+	temporary?: number;
+	ancestryHP?: number;
+	classHP?: number;
+	bonusHP?: number;
+}
+
+export interface GuildCharacterArmorClass {
+	total: number;
+	shieldBonus?: number;
+	equippedArmorName?: string;
+}
+
+export interface GuildCharacterSave {
+	bonus: number;
+	proficiency?: string;
+}
+
+export interface GuildCharacterSkill {
+	name: string;
+	bonus: number;
+	proficiency?: string;
+	isLore?: boolean;
+}
+
+export interface GuildCharacterMoney {
+	cp?: number;
+	sp?: number;
+	gp?: number;
+	pp?: number;
+	totalInGold?: number;
+}
+
+export interface GuildCharacterCondition {
+	name: string;
+	value?: number;
+}
+
+export interface GuildCharacterSheetDetails {
+	_id?: string;
+	characterId?: string;
+	system?: string;
+	abilities?: {
+		str?: number;
+		dex?: number;
+		con?: number;
+		int?: number;
+		wis?: number;
+		cha?: number;
+		[key: string]: number | undefined;
+	};
+	hitPoints?: GuildCharacterHitPoints;
+	armorClass?: GuildCharacterArmorClass;
+	saves?: {
+		fortitude?: GuildCharacterSave;
+		reflex?: GuildCharacterSave;
+		will?: GuildCharacterSave;
+		perception?: GuildCharacterSave;
+		[key: string]: GuildCharacterSave | undefined;
+	};
+	skills?: Record<string, GuildCharacterSkill>;
+	money?: GuildCharacterMoney;
+	conditions?: GuildCharacterCondition[];
+	gear?: unknown[];
+	buildSummary?: unknown;
+	[key: string]: unknown;
 }
 
 export interface GuildCharacter {
@@ -101,6 +211,7 @@ export interface GuildCharacter {
 	username?: any;
 	ownerName?: any;
 	displayName?: any;
+	details?: GuildCharacterSheetDetails;
 	reputation?: any;
 	reputations?: any;
 	factions?: any;
@@ -121,6 +232,9 @@ export interface GuildQuest {
 	description?: string;
 	questgiver?: string;
 	reward?: string;
+	rewardType?: 'party' | 'per_person';
+	rewardMoneyGP?: number;
+	rewardOther?: string;
 	tags?: string[];
 	owner?: string;
 	isCompleted?: boolean;
@@ -141,6 +255,12 @@ export interface GuildBlackVoidListing {
 	sellerLevel?: number;
 	description?: string;
 	nethysUrl?: string;
+	priceType?: string;
+	percentage?: number;
+	markupGp?: number;
+	priceDetails?: string;
+	minLevel?: number;
+	maxLevel?: number;
 }
 
 export interface GuildActivity {
@@ -177,8 +297,14 @@ export class GuildApiClient {
 			throw new Error('API Key missing. Please configure your API key in Guild Obsidian settings.');
 		}
 
-		const url = `${this.baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
-		
+		let url: string;
+		if (endpoint.startsWith('/api/') && this.baseUrl.endsWith('/api/external/v1')) {
+			const root = this.baseUrl.replace(/\/api\/external\/v1\/?$/, '');
+			url = `${root}${endpoint}`;
+		} else {
+			url = `${this.baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+		}
+
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json'
 		};
@@ -218,9 +344,10 @@ export class GuildApiClient {
 	}
 
 	// --- Sessions ---
-	async getSessions(past?: boolean, worldId?: string, system?: string): Promise<GuildSession[]> {
+	async getSessions(past?: boolean, worldId?: string, system?: string, isIntro?: boolean): Promise<GuildSession[]> {
 		const queryParams = new URLSearchParams();
 		if (past !== undefined) queryParams.append('past', String(past));
+		if (isIntro !== undefined) queryParams.append('isIntro', String(isIntro));
 		if (worldId && worldId !== 'ALL') queryParams.append('worldId', worldId);
 		if (system) queryParams.append('system', system);
 		const qs = queryParams.toString();
@@ -230,8 +357,8 @@ export class GuildApiClient {
 			// Fallback: if server requires system filter, query both systems in parallel
 			if (!system) {
 				const [pf, dnd] = await Promise.all([
-					this.getSessions(past, worldId, 'PF').catch(() => []),
-					this.getSessions(past, worldId, 'DnD').catch(() => [])
+					this.getSessions(past, worldId, 'PF', isIntro).catch(() => []),
+					this.getSessions(past, worldId, 'DnD', isIntro).catch(() => [])
 				]);
 				if (pf.length > 0 || dnd.length > 0) {
 					const map = new Map<string, GuildSession>();
@@ -261,8 +388,32 @@ export class GuildApiClient {
 		return this.request<GuildCharacter[]>(`/session/${sessionId}/characters`);
 	}
 
+	async getSessionQuotes(sessionId: string): Promise<GuildSessionQuote[]> {
+		return this.request<GuildSessionQuote[]>(`/session/${sessionId}/quotes`);
+	}
+
+	async getSessionState(sessionId: string): Promise<GuildSessionState> {
+		return this.request<GuildSessionState>(`/session/${sessionId}/state`);
+	}
+
+	async createSession(data: Partial<GuildSession>): Promise<GuildSession> {
+		return this.request<GuildSession>('/session', 'POST', data);
+	}
+
 	async updateSession(sessionId: string, data: Partial<GuildSession>): Promise<GuildSession> {
 		return this.request<GuildSession>(`/session/${sessionId}`, 'PATCH', data);
+	}
+
+	async addSessionLoot(sessionId: string, loot: GuildSessionLoot): Promise<unknown> {
+		return this.request(`/session/${sessionId}/loot`, 'POST', loot);
+	}
+
+	async submitCommendation(sessionId: string, toCharacterId: string, category: string): Promise<unknown> {
+		return this.request(`/session/${sessionId}/commendation`, 'POST', { toCharacterId, category });
+	}
+
+	async updateSessionState(sessionId: string, state: GuildSessionState): Promise<GuildSessionState> {
+		return this.request<GuildSessionState>(`/session/${sessionId}/state`, 'PATCH', state);
 	}
 
 	// --- Characters ---
@@ -276,8 +427,8 @@ export class GuildApiClient {
 		return this.request<GuildCharacter>(`/character/${characterId}`);
 	}
 
-	async getCharacterSheet(characterId: string): Promise<unknown> {
-		return this.request<unknown>(`/character/${characterId}/sheet`);
+	async getCharacterSheet(characterId: string): Promise<GuildCharacterSheetDetails | unknown> {
+		return this.request<GuildCharacterSheetDetails | unknown>(`/character/${characterId}/sheet`);
 	}
 
 	async createCharacter(data: Partial<GuildCharacter>): Promise<GuildCharacter> {
@@ -294,6 +445,10 @@ export class GuildApiClient {
 
 	async updateCharacterSheet(characterId: string, data: unknown): Promise<unknown> {
 		return this.request<unknown>(`/character/${characterId}/sheet`, 'PATCH', data);
+	}
+
+	async getPathbuilderExport(exportId: number | string): Promise<unknown> {
+		return this.request<unknown>(`/api/pathbuilder?id=${encodeURIComponent(String(exportId))}`);
 	}
 
 	// --- Worlds & Quests ---
@@ -317,9 +472,18 @@ export class GuildApiClient {
 		}
 	}
 
+	async updateWorldCalendar(worldId: string, date: { year: number; month: number; day: number }): Promise<unknown> {
+		return this.request<unknown>(`/world/${worldId}/calendar`, 'PATCH', date);
+	}
+
 	async getQuests(worldId?: string): Promise<GuildQuest[]> {
 		const endpoint = worldId && worldId !== 'ALL' ? `/world/${worldId}/quests` : '/quests';
 		return this.request<GuildQuest[]>(endpoint);
+	}
+
+	async getCharacterQuests(characterId?: string): Promise<GuildQuest[]> {
+		const qs = characterId ? `?characterId=${encodeURIComponent(characterId)}` : '';
+		return this.request<GuildQuest[]>(`/character-quests${qs}`);
 	}
 
 	async createQuest(data: Partial<GuildQuest>): Promise<GuildQuest> {
@@ -355,12 +519,80 @@ export class GuildApiClient {
 		return this.request<GuildBlackVoidListing[]>(`/black-void/listings${qs ? `?${qs}` : ''}`);
 	}
 
+	async getBlackVoidTransactions(characterId: string): Promise<unknown> {
+		return this.request<unknown>(`/black-void/character/${characterId}/transactions`);
+	}
+
+	async getBlackVoidLog(characterId: string): Promise<unknown> {
+		return this.request<unknown>(`/black-void/character/${characterId}/log`);
+	}
+
 	async createItemListing(data: Partial<GuildBlackVoidListing>): Promise<GuildBlackVoidListing> {
 		return this.request<GuildBlackVoidListing>('/black-void/item', 'POST', data);
 	}
 
-	async placeBid(listingId: string, characterId: string, amount: number, isBuyout: boolean): Promise<unknown> {
-		return this.request('/black-void/bid', 'POST', { listingId, characterId, amount, isBuyout });
+	async createServiceListing(data: Partial<GuildBlackVoidListing>): Promise<unknown> {
+		return this.request('/black-void/service', 'POST', data);
+	}
+
+	async placeBid(listingId: string, characterId: string, amount: number, isBuyout: boolean, maxAutoBid?: number): Promise<unknown> {
+		return this.request('/black-void/bid', 'POST', {
+			listingId,
+			characterId,
+			amount,
+			isBuyout,
+			maxAutoBid
+		});
+	}
+
+	async claimBlackVoidSeller(listingId: string): Promise<unknown> {
+		return this.request('/black-void/claim/seller', 'PATCH', { listingId });
+	}
+
+	async claimBlackVoidBuyer(listingId: string): Promise<unknown> {
+		return this.request('/black-void/claim/buyer', 'PATCH', { listingId });
+	}
+
+	async claimBlackVoidQuest(questId: string, type: 'reimbursement' | 'payment'): Promise<unknown> {
+		return this.request('/black-void/claim/quest', 'PATCH', { questId, type });
+	}
+
+	async claimBlackVoidGuildmaster(sessionId: string): Promise<unknown> {
+		return this.request('/black-void/claim/guildmaster', 'PATCH', { sessionId });
+	}
+
+	async claimBlackVoidBet(betId: string, result: 'winner' | 'loser'): Promise<unknown> {
+		return this.request(`/black-void/claim/bet/${result}`, 'PATCH', { betId });
+	}
+
+	async claimBlackVoidAll(characterId: string): Promise<unknown> {
+		return this.request('/black-void/claim/all', 'PATCH', { characterId });
+	}
+
+	// --- Availability & Player Schedule ---
+	async getAvailability(startDate?: string, endDate?: string): Promise<unknown> {
+		const queryParams = new URLSearchParams();
+		if (startDate) queryParams.append('startDate', startDate);
+		if (endDate) queryParams.append('endDate', endDate);
+		const qs = queryParams.toString();
+		return this.request<unknown>(`/availability${qs ? `?${qs}` : ''}`);
+	}
+
+	async toggleAvailability(date: number | string, isGM: boolean): Promise<unknown> {
+		return this.request('/availability', 'POST', { date, isGM });
+	}
+
+	// --- Commendations & Achievements ---
+	async getCommendations(sessionId?: string, characterId?: string): Promise<unknown> {
+		const queryParams = new URLSearchParams();
+		if (sessionId) queryParams.append('sessionId', sessionId);
+		if (characterId) queryParams.append('characterId', characterId);
+		const qs = queryParams.toString();
+		return this.request<unknown>(`/commendations${qs ? `?${qs}` : ''}`);
+	}
+
+	async getAchievements(): Promise<unknown> {
+		return this.request<unknown>('/achievements');
 	}
 
 	// --- Discovery & Search ---

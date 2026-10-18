@@ -57,6 +57,27 @@ export async function syncSingleQuest(plugin: GuildObsidianPlugin, quest: GuildQ
 	if (plugin.settings.questWorldPropertyKey && quest.worldId) {
 		frontmatterProps[plugin.settings.questWorldPropertyKey] = quest.worldId;
 	}
+	if (quest.rewardType) {
+		frontmatterProps['rewardType'] = quest.rewardType;
+	}
+	if (quest.rewardMoneyGP !== undefined) {
+		frontmatterProps['rewardMoneyGP'] = quest.rewardMoneyGP;
+	}
+	if (quest.rewardOther) {
+		frontmatterProps['rewardOther'] = quest.rewardOther;
+	}
+	if (quest.characterId) {
+		frontmatterProps['characterId'] = quest.characterId;
+	}
+	if (quest.levelPF !== undefined) {
+		frontmatterProps['levelPF'] = quest.levelPF;
+	}
+	if (quest.levelDnD !== undefined) {
+		frontmatterProps['levelDnD'] = quest.levelDnD;
+	}
+	if (quest.tags && quest.tags.length > 0) {
+		frontmatterProps['tags'] = quest.tags;
+	}
 
 	let existingFile = plugin.app.vault.getAbstractFileByPath(filePath);
 	if (!(existingFile instanceof TFile)) {
@@ -156,6 +177,12 @@ export async function pushQuest(plugin: GuildObsidianPlugin, questId: string): P
 	if (fm[descKey] !== undefined) updateData.description = String(fm[descKey]);
 	if (fm[rewardKey] !== undefined) updateData.reward = String(fm[rewardKey]);
 	if (fm[statusKey] !== undefined) updateData.isCompleted = Boolean(fm[statusKey]);
+	if (fm.rewardType !== undefined) updateData.rewardType = fm.rewardType as 'party' | 'per_person';
+	if (fm.rewardMoneyGP !== undefined) {
+		const gp = Number(fm.rewardMoneyGP);
+		if (!isNaN(gp)) updateData.rewardMoneyGP = gp;
+	}
+	if (fm.rewardOther !== undefined) updateData.rewardOther = String(fm.rewardOther);
 
 	try {
 		await client.updateQuest(questId, updateData);

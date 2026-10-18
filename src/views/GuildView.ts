@@ -4,12 +4,20 @@ import { GuildApiClient, GuildWorld, GuildQuest, GuildCharacter, GuildSession } 
 import { syncSessions, syncSingleSession, pushSession, getSessionFilePath } from '../sessionSync';
 import { syncCharacters, syncSingleCharacter, pushCharacter, getCharacterFilePath } from '../characterSync';
 import { syncQuests, syncSingleQuest, pushQuest, getQuestFilePath } from '../questSync';
+import { CreateSessionModal, CreateCharacterModal, CreateQuestModal } from './GuildModals';
 
 export const GUILD_VIEW_TYPE = 'guild-sidebar-view';
 
 export class GuildView extends ItemView {
 	plugin: GuildObsidianPlugin;
 	private activeTab: 'sessions' | 'characters' | 'worlds' = 'sessions';
+
+	// Filters
+	private sessionSystemFilter: 'ALL' | 'PF' | 'DnD' = 'ALL';
+	private sessionIntroFilter = false;
+	private characterSystemFilter: 'ALL' | 'PF' | 'DnD' = 'ALL';
+	private characterSearchQuery = '';
+	private questFilterStatus: 'all' | 'active' | 'completed' = 'all';
 
 	constructor(leaf: WorkspaceLeaf, plugin: GuildObsidianPlugin) {
 		super(leaf);
@@ -50,7 +58,7 @@ export class GuildView extends ItemView {
 		);
 		const worldsTabLabel = isWorldSelected ? 'Quests' : 'Worlds & Quests';
 
-		// Navigation Tabs: Sessions main tab first
+		// Navigation Tabs
 		const nav = container.createEl('div', { cls: 'guild-nav-tabs' });
 		const allTabs: Array<{ id: 'sessions' | 'characters' | 'worlds'; label: string }> = [
 			{ id: 'sessions', label: 'Sessions' },
@@ -105,15 +113,62 @@ export class GuildView extends ItemView {
 	}
 
 	private async renderSessions(container: HTMLElement, client: GuildApiClient) {
-		const syncBtn = container.createEl('button', { text: '🔄 Sync All Session Notes to Vault', cls: 'guild-sync-btn' });
+		// Action Bar: Sync button and + New Session button
+		const actionBar = container.createEl('div', { cls: 'guild-action-bar' });
+
+		const syncBtn = actionBar.createEl('button', { text: '🔄 Sync All Sessions', cls: 'guild-sync-btn' });
 		syncBtn.addEventListener('click', async () => {
 			await syncSessions(this.plugin);
 			await this.render();
 		});
 
+		const newBtn = actionBar.createEl('button', { text: '+ New Session', cls: 'guild-new-btn' });
+		newBtn.addEventListener('click', () => {
+			new CreateSessionModal(this.app, this.plugin, () => this.render()).open();
+		});
+
+		// Filter Bar: System filter & Intro filter
+		const filterBar = container.createEl('div', { cls: 'guild-filter-bar' });
+
+		const sysOptions: Array<{ key: 'ALL' | 'PF' | 'DnD'; label: string }> = [
+			{ key: 'ALL', label: 'All' },
+			{ key: 'PF', label: 'PF' },
+			{ key: 'DnD', label: 'D&D' }
+		];
+		sysOptions.forEach(opt => {
+			const btn = filterBar.createEl('button', {
+				text: opt.label,
+				cls: `guild-filter-btn ${this.sessionSystemFilter === opt.key ? 'guild-filter-active' : ''}`
+			});
+			btn.addEventListener('click', () => {
+				this.sessionSystemFilter = opt.key;
+				this.render();
+			});
+		});
+
+		const introBtn = filterBar.createEl('button', {
+			text: this.sessionIntroFilter ? 'Intro Only' : 'All Sessions',
+			cls: `guild-filter-btn ${this.sessionIntroFilter ? 'guild-filter-active' : ''}`
+		});
+		introBtn.addEventListener('click', () => {
+			this.sessionIntroFilter = !this.sessionIntroFilter;
+			this.render();
+		});
+
 		// Fetch Upcoming and Past Sessions
-		const upcomingSessions = await client.getSessions(false, this.plugin.settings.selectedWorldId).catch(() => []);
-		const pastSessions = await client.getSessions(true, this.plugin.settings.selectedWorldId).catch(() => []);
+		const upcomingSessions = await client.getSessions(
+			false,
+			this.plugin.settings.selectedWorldId,
+			this.sessionSystemFilter === 'ALL' ? undefined : this.sessionSystemFilter,
+			this.sessionIntroFilter ? true : undefined
+		).catch(() => []);
+
+		const pastSessions = await client.getSessions(
+			true,
+			this.plugin.settings.selectedWorldId,
+			this.sessionSystemFilter === 'ALL' ? undefined : this.sessionSystemFilter,
+			this.sessionIntroFilter ? true : undefined
+		).catch(() => []);
 
 		// Section 1: Upcoming Sessions
 		container.createEl('h5', { text: `Upcoming Sessions (${upcomingSessions.length})` });
@@ -138,7 +193,16 @@ export class GuildView extends ItemView {
 
 	private renderSessionCard(container: HTMLElement, session: GuildSession) {
 		const card = container.createEl('div', { cls: 'guild-card' });
-		card.createEl('strong', { text: `System: ${session.system} (Max Players: ${session.maxPlayers})` });
+		const header = card.createEl('div', { cls: 'guild-card-header' });
+		const levelInfo = session.level !== undefined ? ` (Lvl ${session.level})` : '';
+		header.createEl('strong', { text: `System: ${session.system}${levelInfo} - Max Players: ${session.maxPlayers}` });
+
+		if (session.isIntro) {
+			header.createEl('span', { text: ' [Intro]', cls: 'guild-badge-intro' });
+		}
+		if (session.locked) {
+			header.createEl('span', { text: ' 🔒', cls: 'guild-badge-locked' });
+		}
 
 		const rawDate = session.date || session.startDate;
 		if (rawDate) {
@@ -182,24 +246,88 @@ export class GuildView extends ItemView {
 	}
 
 	private async renderCharacters(container: HTMLElement, client: GuildApiClient) {
-		const syncBtn = container.createEl('button', { text: '🔄 Sync All Characters to Vault', cls: 'guild-sync-btn' });
+		// Action Bar: Sync button and + New Character button
+		const actionBar = container.createEl('div', { cls: 'guild-action-bar' });
+
+		const syncBtn = actionBar.createEl('button', { text: '🔄 Sync All Characters', cls: 'guild-sync-btn' });
 		syncBtn.addEventListener('click', async () => {
 			await syncCharacters(this.plugin);
 			await this.render();
 		});
 
-		let characters = await client.getCharacters();
+		const newBtn = actionBar.createEl('button', { text: '+ New Character', cls: 'guild-new-btn' });
+		newBtn.addEventListener('click', () => {
+			new CreateCharacterModal(this.app, this.plugin, () => this.render()).open();
+		});
+
+		// Filter Bar: System filter & Search box
+		const filterBar = container.createEl('div', { cls: 'guild-filter-bar' });
+
+		const sysOptions: Array<{ key: 'ALL' | 'PF' | 'DnD'; label: string }> = [
+			{ key: 'ALL', label: 'All' },
+			{ key: 'PF', label: 'PF' },
+			{ key: 'DnD', label: 'D&D' }
+		];
+		sysOptions.forEach(opt => {
+			const btn = filterBar.createEl('button', {
+				text: opt.label,
+				cls: `guild-filter-btn ${this.characterSystemFilter === opt.key ? 'guild-filter-active' : ''}`
+			});
+			btn.addEventListener('click', () => {
+				this.characterSystemFilter = opt.key;
+				this.render();
+			});
+		});
+
+		const searchInput = filterBar.createEl('input', {
+			cls: 'guild-search-input',
+			type: 'text',
+			placeholder: 'Filter by name or player...'
+		});
+		searchInput.value = this.characterSearchQuery;
+		searchInput.addEventListener('input', () => {
+			this.characterSearchQuery = searchInput.value;
+			this.filterAndRenderCharacterList(charListContainer, allCharacters);
+		});
+
+		let allCharacters = await client.getCharacters();
 		// Sort characters descending by level, then by XP
-		characters.sort((a, b) => {
+		allCharacters.sort((a, b) => {
 			const lvlDiff = (b.lvl || 0) - (a.lvl || 0);
 			if (lvlDiff !== 0) return lvlDiff;
 			return (b.xp || 0) - (a.xp || 0);
 		});
 
-		container.createEl('h5', { text: `Characters (${characters.length})` });
+		const charListContainer = container.createEl('div');
+		this.filterAndRenderCharacterList(charListContainer, allCharacters);
+	}
+
+	private filterAndRenderCharacterList(container: HTMLElement, characters: GuildCharacter[]) {
+		container.empty();
+
+		let filtered = characters;
+		if (this.characterSystemFilter !== 'ALL') {
+			filtered = filtered.filter(c => (c.system || '').toLowerCase() === this.characterSystemFilter.toLowerCase());
+		}
+		if (this.characterSearchQuery.trim()) {
+			const q = this.characterSearchQuery.toLowerCase().trim();
+			filtered = filtered.filter(c => {
+				const name = (c.name || '').toLowerCase();
+				const player = (typeof c.player === 'string' ? c.player : c.player?.name || '').toLowerCase();
+				const cls = (c.class || '').toLowerCase();
+				return name.includes(q) || player.includes(q) || cls.includes(q);
+			});
+		}
+
+		container.createEl('h5', { text: `Characters (${filtered.length})` });
 		const charList = container.createEl('div', { cls: 'guild-card-list' });
 
-		characters.forEach(c => {
+		if (filtered.length === 0) {
+			charList.createEl('p', { text: 'No characters match the filter.', cls: 'guild-card-empty' });
+			return;
+		}
+
+		filtered.forEach(c => {
 			const card = charList.createEl('div', { cls: 'guild-card' });
 			const titleSuffix = c.title ? ` - "${c.title}"` : '';
 			card.createEl('strong', { text: `${c.name}${titleSuffix} (Lvl ${c.lvl} ${c.class || ''})` });
@@ -222,7 +350,9 @@ export class GuildView extends ItemView {
 				const refetchBtn = actions.createEl('button', { text: '🔄', cls: 'guild-icon-btn' });
 				refetchBtn.title = 'Re-fetch single character from Guild API';
 				refetchBtn.addEventListener('click', async () => {
-					await syncSingleCharacter(this.plugin, c);
+					const client = new GuildApiClient(this.plugin.settings.apiUrl, this.plugin.settings.apiKey);
+					const fullChar = await client.getCharacter(c._id).catch(() => c);
+					await syncSingleCharacter(this.plugin, fullChar);
 					new Notice(`Guild Obsidian: Re-fetched character note`);
 					await this.render();
 				});
@@ -235,7 +365,9 @@ export class GuildView extends ItemView {
 			} else {
 				const importBtn = actions.createEl('button', { text: '📥 Import Note to Vault', cls: 'guild-import-btn' });
 				importBtn.addEventListener('click', async () => {
-					await syncSingleCharacter(this.plugin, c);
+					const client = new GuildApiClient(this.plugin.settings.apiUrl, this.plugin.settings.apiKey);
+					const fullChar = await client.getCharacter(c._id).catch(() => c);
+					await syncSingleCharacter(this.plugin, fullChar);
 					await this.render();
 				});
 			}
@@ -243,10 +375,18 @@ export class GuildView extends ItemView {
 	}
 
 	private async renderWorldsAndQuests(container: HTMLElement, client: GuildApiClient, isWorldSelected: boolean) {
-		const syncBtn = container.createEl('button', { text: '🔄 Sync All Quests to Vault', cls: 'guild-sync-btn' });
+		// Action Bar: Sync button and + New Quest button
+		const actionBar = container.createEl('div', { cls: 'guild-action-bar' });
+
+		const syncBtn = actionBar.createEl('button', { text: '🔄 Sync All Quests', cls: 'guild-sync-btn' });
 		syncBtn.addEventListener('click', async () => {
 			await syncQuests(this.plugin);
 			await this.render();
+		});
+
+		const newBtn = actionBar.createEl('button', { text: '+ New Quest', cls: 'guild-new-btn' });
+		newBtn.addEventListener('click', () => {
+			new CreateQuestModal(this.app, this.plugin, () => this.render()).open();
 		});
 
 		// Only fetch/display worlds list if no specific world is selected
@@ -264,54 +404,104 @@ export class GuildView extends ItemView {
 
 		// Fetch Quests
 		const quests = await client.getQuests(this.plugin.settings.selectedWorldId).catch(() => []);
-		container.createEl('h5', { text: `Active Quests (${quests.length})` });
-		const questList = container.createEl('div', { cls: 'guild-card-list' });
+		const activeQuests = quests.filter(q => !q.isCompleted);
+		const completedQuests = quests.filter(q => q.isCompleted);
 
-		quests.forEach(q => {
-			const card = questList.createEl('div', { cls: 'guild-card' });
-			const header = card.createEl('div', { cls: 'guild-card-header' });
-			header.createEl('strong', { text: q.name });
+		// Filter Bar: All / Active / Completed
+		const filterBar = container.createEl('div', { cls: 'guild-filter-bar' });
 
-			if (q.isCompleted) {
-				header.createEl('span', { text: ' (Completed)', cls: 'guild-badge-completed' });
-			}
+		const statusFilters: Array<{ key: 'all' | 'active' | 'completed'; label: string }> = [
+			{ key: 'all', label: `All (${quests.length})` },
+			{ key: 'active', label: `Active (${activeQuests.length})` },
+			{ key: 'completed', label: `Completed (${completedQuests.length})` }
+		];
 
-			if (q.description) card.createEl('p', { text: q.description });
-			if (q.reward) card.createEl('small', { text: `Reward: ${q.reward}` });
-
-			const existingFile = this.findFileForQuest(q);
-			const actions = card.createEl('div', { cls: 'guild-card-actions' });
-
-			if (existingFile instanceof TFile) {
-				const gotoBtn = actions.createEl('button', { text: '📄 Go to Note', cls: 'guild-goto-btn' });
-				gotoBtn.addEventListener('click', () => {
-					this.app.workspace.getLeaf(false).openFile(existingFile);
-				});
-
-				const refetchBtn = actions.createEl('button', { text: '🔄', cls: 'guild-icon-btn' });
-				refetchBtn.title = 'Re-fetch single quest from Guild API';
-				refetchBtn.addEventListener('click', async () => {
-					await syncSingleQuest(this.plugin, q);
-					new Notice(`Guild Obsidian: Re-fetched quest note`);
-					await this.render();
-				});
-
-				const pushBtn = actions.createEl('button', { text: '⬆️ Push', cls: 'guild-push-btn' });
-				pushBtn.title = 'Push local frontmatter changes to Guild API';
-				pushBtn.addEventListener('click', async () => {
-					await pushQuest(this.plugin, q._id);
-				});
-			} else {
-				const importBtn = actions.createEl('button', { text: '📥 Import Note to Vault', cls: 'guild-import-btn' });
-				importBtn.addEventListener('click', async () => {
-					await syncSingleQuest(this.plugin, q);
-					await this.render();
-				});
-			}
+		statusFilters.forEach(opt => {
+			const btn = filterBar.createEl('button', {
+				text: opt.label,
+				cls: `guild-filter-btn ${this.questFilterStatus === opt.key ? 'guild-filter-active' : ''}`
+			});
+			btn.addEventListener('click', () => {
+				this.questFilterStatus = opt.key;
+				this.render();
+			});
 		});
+
+		// Section 1: Active Quests
+		if (this.questFilterStatus === 'all' || this.questFilterStatus === 'active') {
+			container.createEl('h5', { text: `Active Quests (${activeQuests.length})` });
+			const activeList = container.createEl('div', { cls: 'guild-card-list' });
+
+			if (activeQuests.length === 0) {
+				activeList.createEl('p', { text: 'No active quests found.', cls: 'guild-card-empty' });
+			} else {
+				activeQuests.forEach(q => this.renderQuestCard(activeList, q));
+			}
+		}
+
+		// Section 2: Completed Quests in their own section
+		if (this.questFilterStatus === 'all' || this.questFilterStatus === 'completed') {
+			container.createEl('h5', { text: `Completed Quests (${completedQuests.length})` });
+			const completedList = container.createEl('div', { cls: 'guild-card-list' });
+
+			if (completedQuests.length === 0) {
+				completedList.createEl('p', { text: 'No completed quests found.', cls: 'guild-card-empty' });
+			} else {
+				completedQuests.forEach(q => this.renderQuestCard(completedList, q));
+			}
+		}
 	}
 
+	private renderQuestCard(container: HTMLElement, q: GuildQuest) {
+		const card = container.createEl('div', { cls: 'guild-card' });
+		const header = card.createEl('div', { cls: 'guild-card-header' });
+		header.createEl('strong', { text: q.name });
 
+		if (q.isCompleted) {
+			header.createEl('span', { text: ' (Completed)', cls: 'guild-badge-completed' });
+		}
+
+		if (q.description) card.createEl('p', { text: q.description });
+
+		let rewardText = q.reward;
+		if (!rewardText && (q.rewardMoneyGP !== undefined || q.rewardOther)) {
+			const parts: string[] = [];
+			if (q.rewardMoneyGP !== undefined) parts.push(`${q.rewardMoneyGP} GP${q.rewardType === 'per_person' ? ' / person' : ''}`);
+			if (q.rewardOther) parts.push(q.rewardOther);
+			rewardText = parts.join(' + ');
+		}
+		if (rewardText) card.createEl('small', { text: `Reward: ${rewardText}` });
+
+		const existingFile = this.findFileForQuest(q);
+		const actions = card.createEl('div', { cls: 'guild-card-actions' });
+
+		if (existingFile instanceof TFile) {
+			const gotoBtn = actions.createEl('button', { text: '📄 Go to Note', cls: 'guild-goto-btn' });
+			gotoBtn.addEventListener('click', () => {
+				this.app.workspace.getLeaf(false).openFile(existingFile);
+			});
+
+			const refetchBtn = actions.createEl('button', { text: '🔄', cls: 'guild-icon-btn' });
+			refetchBtn.title = 'Re-fetch single quest from Guild API';
+			refetchBtn.addEventListener('click', async () => {
+				await syncSingleQuest(this.plugin, q);
+				new Notice(`Guild Obsidian: Re-fetched quest note`);
+				await this.render();
+			});
+
+			const pushBtn = actions.createEl('button', { text: '⬆️ Push', cls: 'guild-push-btn' });
+			pushBtn.title = 'Push local frontmatter changes to Guild API';
+			pushBtn.addEventListener('click', async () => {
+				await pushQuest(this.plugin, q._id);
+			});
+		} else {
+			const importBtn = actions.createEl('button', { text: '📥 Import Note to Vault', cls: 'guild-import-btn' });
+			importBtn.addEventListener('click', async () => {
+				await syncSingleQuest(this.plugin, q);
+				await this.render();
+			});
+		}
+	}
 
 	private findFileForSession(session: GuildSession): TFile | null {
 		const filePath = getSessionFilePath(this.plugin, session);

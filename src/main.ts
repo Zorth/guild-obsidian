@@ -4,9 +4,10 @@ import { GuildView, GUILD_VIEW_TYPE } from './views/GuildView';
 import { GuildApiClient } from './api';
 import { syncSessions } from './sessionSync';
 import { syncCharacters, updateLocalCharacterRankTags } from './characterSync';
+import { syncQuests } from './questSync';
 
 export default class GuildObsidianPlugin extends Plugin {
-	settings: GuildObsidianSettings;
+	settings!: GuildObsidianSettings;
 
 	async onload() {
 		await this.loadSettings();
@@ -49,6 +50,14 @@ export default class GuildObsidianPlugin extends Plugin {
 			name: 'Sync Character Notes',
 			callback: async () => {
 				await syncCharacters(this);
+			}
+		});
+
+		this.addCommand({
+			id: 'guild-sync-quests',
+			name: 'Sync Quest Notes',
+			callback: async () => {
+				await syncQuests(this);
 			}
 		});
 

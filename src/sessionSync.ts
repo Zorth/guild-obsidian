@@ -1,6 +1,6 @@
 import { TFile, Notice } from 'obsidian';
 import GuildObsidianPlugin from './main';
-import { GuildApiClient, GuildCalendar, GuildCalendarEra, GuildSession, GuildWorld } from './api';
+import { GuildApiClient, GuildCalendar, GuildCalendarEra, GuildInGameDate, GuildSession, GuildWorld } from './api';
 import { createNoteFromTemplate } from './templateUtils';
 
 export interface SyncResult {
@@ -31,7 +31,8 @@ export function formatInWorldDate(
 	year: number,
 	month: number, // 0-indexed month (0 = month 1)
 	day: number,
-	calendar?: GuildCalendar | null
+	calendar?: GuildCalendar | null,
+	eraNameOrAbbr?: string
 ): string {
 	let eraAbbr = '';
 	let displayYear = year;
@@ -70,6 +71,10 @@ export function formatInWorldDate(
 		}
 	}
 
+	if (!eraAbbr && eraNameOrAbbr) {
+		eraAbbr = eraNameOrAbbr;
+	}
+
 	const monthNum = month + 1;
 	const formattedMonth = String(monthNum).padStart(2, '0');
 	const formattedDay = String(day).padStart(2, '0');
@@ -80,23 +85,27 @@ export function formatInWorldDate(
 	return `${displayYear}/${formattedMonth}/${formattedDay}`;
 }
 
-export function getSessionFilePath(plugin: GuildObsidianPlugin, session: GuildSession, worldName = 'General'): string {
+export function getSessionFilePath(plugin: GuildObsidianPlugin, session: GuildSession, worldName = 'General', inGameDateStr?: string): string {
 	const folderPath = plugin.settings.sessionsFolder.trim().replace(/^\/+|\/+$/g, '') || 'Sessions';
 	const rawDate = session.date || session.startDate;
-	let formattedDate = 'Undated';
+	let formattedRealDate = 'Undated';
 	if (rawDate) {
 		const d = new Date(rawDate);
 		if (!isNaN(d.getTime())) {
-			formattedDate = d.toISOString().split('T')[0];
+			formattedRealDate = d.toISOString().split('T')[0];
 		} else {
-			formattedDate = String(rawDate).split('T')[0];
+			formattedRealDate = String(rawDate).split('T')[0];
 		}
 	}
+	const cleanInGameDate = inGameDateStr ? inGameDateStr.replace(/[/\\?%*:|"<>]/g, '-') : formattedRealDate;
 
 	let filenamePattern = plugin.settings.filenameFormat.trim() || '{date} {world}';
 	filenamePattern = filenamePattern
-		.replace('{date}', formattedDate)
-		.replace('YYYY-MM-DD', formattedDate)
+		.replace('{inWorldDate}', cleanInGameDate)
+		.replace('{inGameDate}', cleanInGameDate)
+		.replace('{realDate}', formattedRealDate)
+		.replace('{date}', cleanInGameDate)
+		.replace('YYYY-MM-DD', cleanInGameDate)
 		.replace('{world}', worldName)
 		.replace('WORLDNAME', worldName)
 		.replace('{system}', session.system)
@@ -113,6 +122,15 @@ export async function syncSingleSession(
 	calendarCache?: Map<string, GuildCalendar | null>
 ): Promise<TFile> {
 	const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+
+	// Ensure detailed session info (inGameDate, characters, loot, etc.) is loaded
+	if (!session.inGameDate || !session.characters || !session.loot) {
+		const detailed = await client.getSession(session._id).catch(() => null);
+		if (detailed) {
+			session = { ...session, ...detailed };
+		}
+	}
+
 	const worlds = await client.getWorlds().catch(() => []);
 	const worldMap = new Map<string, string>();
 	worlds.forEach(w => {
@@ -151,7 +169,42 @@ export async function syncSingleSession(
 		}
 	}
 
-	const filePath = getSessionFilePath(plugin, session, worldName);
+	// If inGameDate is omitted on session, default to campaign world's current calendar date as per API spec
+	if (!session.inGameDate && calendar?.dynamic_data?.year !== undefined && calendar.dynamic_data.day !== undefined) {
+		const m = calendar.dynamic_data.timespan ?? calendar.dynamic_data.month ?? 0;
+		session.inGameDate = {
+			year: calendar.dynamic_data.year,
+			month: m,
+			day: calendar.dynamic_data.day
+		};
+	}
+
+	let startDateValue: string | undefined;
+	let endDateValue: string | undefined;
+
+	if (session.inGameDate && session.inGameDate.year !== undefined && session.inGameDate.month !== undefined && session.inGameDate.day !== undefined) {
+		startDateValue = formatInWorldDate(
+			session.inGameDate.year,
+			session.inGameDate.month,
+			session.inGameDate.day,
+			calendar,
+			session.inGameDate.era
+		);
+		const endYear = session.inGameDate.endYear ?? session.inGameDate.year;
+		const endMonth = session.inGameDate.endMonth ?? session.inGameDate.month;
+		const endDay = session.inGameDate.endDay ?? session.inGameDate.day;
+		endDateValue = formatInWorldDate(endYear, endMonth, endDay, calendar, session.inGameDate.era);
+	} else if (session.startDate) {
+		startDateValue = session.startDate;
+		endDateValue = session.endDate || session.startDate;
+	} else if (session.date) {
+		const d = new Date(session.date);
+		const formatted = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : String(session.date);
+		startDateValue = formatted;
+		endDateValue = session.endDate || formatted;
+	}
+
+	const filePath = getSessionFilePath(plugin, session, worldName, startDateValue);
 
 	const folderPath = plugin.settings.sessionsFolder.trim().replace(/^\/+|\/+$/g, '') || 'Sessions';
 	const folder = plugin.app.vault.getAbstractFileByPath(folderPath);
@@ -164,8 +217,21 @@ export async function syncSingleSession(
 		const characters = await client.getSessionCharacters(session._id);
 		playerWikilinks = characters.map(c => `[[${c.name}]]`);
 	} catch {
-		if (session.attendingCharacters) {
-			playerWikilinks = session.attendingCharacters.map(id => `[[${id}]]`);
+		const charIds = session.characters || session.attendingCharacters;
+		if (charIds && Array.isArray(charIds)) {
+			const idKey = plugin.settings.characterIdPropertyKey || 'guild_character_id';
+			const files = plugin.app.vault.getMarkdownFiles();
+			const idToNameMap = new Map<string, string>();
+			for (const f of files) {
+				const cache = plugin.app.metadataCache.getFileCache(f);
+				if (cache?.frontmatter && cache.frontmatter[idKey]) {
+					idToNameMap.set(String(cache.frontmatter[idKey]), f.basename);
+				}
+			}
+			playerWikilinks = charIds.map(id => {
+				const name = idToNameMap.get(id);
+				return name ? `[[${name}]]` : `[[${id}]]`;
+			});
 		}
 	}
 
@@ -176,28 +242,56 @@ export async function syncSingleSession(
 		[plugin.settings.playersPropertyKey]: playerWikilinks,
 	};
 
-	let startDateValue: string | undefined;
-	let endDateValue: string | undefined;
+	if (session.location) {
+		frontmatterProps['location'] = session.location;
+	}
+	if (session.planning !== undefined) {
+		frontmatterProps['planning'] = session.planning;
+	}
+	if (session.level !== undefined) {
+		frontmatterProps['level'] = session.level;
+	}
+	if (session.maxPlayers !== undefined) {
+		frontmatterProps['maxPlayers'] = session.maxPlayers;
+	}
+	if (session.isIntro !== undefined) {
+		frontmatterProps['isIntro'] = session.isIntro;
+	}
+	if (session.isPrivate !== undefined) {
+		frontmatterProps['isPrivate'] = session.isPrivate;
+	}
+	if (session.locked !== undefined) {
+		frontmatterProps['locked'] = session.locked;
+	}
+	if (session.voidContribution !== undefined) {
+		frontmatterProps['voidContribution'] = session.voidContribution;
+	}
+	if (session.pendingVoidContribution !== undefined) {
+		frontmatterProps['pendingVoidContribution'] = session.pendingVoidContribution;
+	}
+	if (session.loot && session.loot.length > 0) {
+		frontmatterProps['loot'] = session.loot;
+	}
+	if (session.gmCharacterId) {
+		frontmatterProps['gmCharacterId'] = session.gmCharacterId;
+	}
 
-	if (session.inGameDate && session.inGameDate.year !== undefined && session.inGameDate.month !== undefined && session.inGameDate.day !== undefined) {
-		startDateValue = formatInWorldDate(
-			session.inGameDate.year,
-			session.inGameDate.month,
-			session.inGameDate.day,
-			calendar
-		);
-		const endYear = session.inGameDate.endYear ?? session.inGameDate.year;
-		const endMonth = session.inGameDate.endMonth ?? session.inGameDate.month;
-		const endDay = session.inGameDate.endDay ?? session.inGameDate.day;
-		endDateValue = formatInWorldDate(endYear, endMonth, endDay, calendar);
-	} else if (session.startDate) {
-		startDateValue = session.startDate;
-		endDateValue = session.endDate || session.startDate;
-	} else if (session.date) {
+	if (session.date) {
 		const d = new Date(session.date);
-		const formatted = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : String(session.date);
-		startDateValue = formatted;
-		endDateValue = session.endDate || formatted;
+		frontmatterProps['realDate'] = !isNaN(d.getTime()) ? d.toISOString() : session.date;
+	}
+
+	if (session.inGameDate) {
+		frontmatterProps['inGameDate'] = session.inGameDate;
+		if (calendar?.name) {
+			frontmatterProps['fc-calendar'] = calendar.name;
+			const m = session.inGameDate.month ?? 0;
+			frontmatterProps['fc-date'] = {
+				year: session.inGameDate.year,
+				month: m + 1,
+				day: session.inGameDate.day
+			};
+		}
 	}
 
 	if (startDateValue) {
@@ -264,9 +358,35 @@ export async function pushSession(plugin: GuildObsidianPlugin, sessionId: string
 	const locationKey = 'location';
 	const planningKey = 'planning';
 
-	if (fm[startKey] !== undefined) updateData.startDate = String(fm[startKey]);
 	if (fm[locationKey] !== undefined) updateData.location = String(fm[locationKey]);
-	if (fm[planningKey] !== undefined) updateData.planning = String(fm[planningKey]);
+	if (fm[planningKey] !== undefined) {
+		updateData.planning = typeof fm[planningKey] === 'boolean' ? fm[planningKey] : String(fm[planningKey]);
+	}
+	if (fm.level !== undefined) {
+		const lvl = Number(fm.level);
+		if (!isNaN(lvl)) updateData.level = lvl;
+	}
+	if (fm.maxPlayers !== undefined) {
+		const mp = Number(fm.maxPlayers);
+		if (!isNaN(mp)) updateData.maxPlayers = mp;
+	}
+	if (fm.locked !== undefined) updateData.locked = Boolean(fm.locked);
+	if (fm.isPrivate !== undefined) updateData.isPrivate = Boolean(fm.isPrivate);
+	if (fm.isIntro !== undefined) updateData.isIntro = Boolean(fm.isIntro);
+
+	if (fm.date !== undefined) {
+		const num = typeof fm.date === 'number' ? fm.date : new Date(fm.date).getTime();
+		if (!isNaN(num)) updateData.date = num;
+	} else if (fm[startKey] !== undefined) {
+		const parsed = typeof fm[startKey] === 'number' ? fm[startKey] : new Date(String(fm[startKey])).getTime();
+		if (!isNaN(parsed)) {
+			updateData.date = parsed;
+		}
+	}
+
+	if (fm.inGameDate && typeof fm.inGameDate === 'object') {
+		updateData.inGameDate = fm.inGameDate as GuildInGameDate;
+	}
 
 	try {
 		await client.updateSession(sessionId, updateData);

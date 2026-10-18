@@ -58,9 +58,26 @@ export function getStandardCharacterKeys(plugin: GuildObsidianPlugin): Set<strin
 		'player',
 		'userId',
 		'tags',
+		'tag',
 		'aliases',
 		'position',
-		'reputation'
+		'reputation',
+		'worldId',
+		'world_id',
+		'hp',
+		'ac',
+		'money',
+		'abilities',
+		'saves',
+		'skills',
+		'conditions',
+		'gear',
+		'build',
+		'rawExport',
+		'details',
+		'armorClass',
+		'hitPoints',
+		'buildSummary'
 	]);
 }
 
@@ -262,6 +279,41 @@ export async function syncSingleCharacter(
 		frontmatterProps[playerKey] = playerName;
 	}
 
+	if (!character.details) {
+		const client = new GuildApiClient(plugin.settings.apiUrl, plugin.settings.apiKey);
+		const fullChar = await client.getCharacter(character._id).catch(() => null);
+		if (fullChar?.details) {
+			character = { ...character, ...fullChar };
+		}
+	}
+
+	if (character.details) {
+		const details = character.details;
+		if (details.hitPoints?.current !== undefined) {
+			frontmatterProps['hp'] = details.hitPoints.current;
+		} else if (details.hitPoints?.max !== undefined) {
+			frontmatterProps['hp'] = details.hitPoints.max;
+		}
+		if (details.armorClass?.total !== undefined) {
+			frontmatterProps['ac'] = details.armorClass.total;
+		}
+		if (details.money?.totalInGold !== undefined) {
+			frontmatterProps['money'] = details.money.totalInGold;
+		}
+		if (details.abilities) {
+			frontmatterProps['abilities'] = details.abilities;
+		}
+		if (details.saves) {
+			frontmatterProps['saves'] = details.saves;
+		}
+		if (details.skills) {
+			frontmatterProps['skills'] = details.skills;
+		}
+		if (details.conditions && details.conditions.length > 0) {
+			frontmatterProps['conditions'] = details.conditions;
+		}
+	}
+
 	// Only import character reputation if a specific campaign world is selected (not 'ALL' or empty)
 	const isSpecificWorldSelected = Boolean(
 		plugin.settings.selectedWorldId && plugin.settings.selectedWorldId !== 'ALL'
@@ -448,6 +500,48 @@ export async function pushCharacter(plugin: GuildObsidianPlugin, characterId: st
 			}
 		}
 
+		// Also push character sheet stats if present
+		if (fm.build !== undefined || fm.rawExport !== undefined) {
+			try {
+				const systemKey = plugin.settings.characterSystemPropertyKey || 'system';
+				await client.updateCharacterSheet(characterId, {
+					system: fm[systemKey] || 'PF',
+					build: fm.build,
+					rawExport: fm.rawExport
+				});
+			} catch (sheetErr) {
+				console.warn('Guild Obsidian: Failed to push Pathbuilder sheet:', sheetErr);
+			}
+		} else if (fm.details !== undefined && typeof fm.details === 'object') {
+			try {
+				await client.updateCharacterSheet(characterId, fm.details);
+			} catch (sheetErr) {
+				console.warn('Guild Obsidian: Failed to push character sheet details:', sheetErr);
+			}
+		} else {
+			const sheetData: Record<string, unknown> = {};
+			if (fm.hp !== undefined) sheetData.hp = fm.hp;
+			if (fm.ac !== undefined) sheetData.ac = fm.ac;
+			if (fm.hitPoints !== undefined) sheetData.hitPoints = fm.hitPoints;
+			if (fm.armorClass !== undefined) sheetData.armorClass = fm.armorClass;
+			if (fm.abilities !== undefined) sheetData.abilities = fm.abilities;
+			if (fm.saves !== undefined) sheetData.saves = fm.saves;
+			if (fm.skills !== undefined) sheetData.skills = fm.skills;
+			if (fm.money !== undefined) sheetData.money = fm.money;
+			if (fm.conditions !== undefined) sheetData.conditions = fm.conditions;
+			if (fm.gear !== undefined) sheetData.gear = fm.gear;
+
+			if (Object.keys(sheetData).length > 0) {
+				const systemKey = plugin.settings.characterSystemPropertyKey || 'system';
+				if (fm[systemKey]) sheetData.system = fm[systemKey];
+				try {
+					await client.updateCharacterSheet(characterId, sheetData);
+				} catch (sheetErr) {
+					console.warn('Guild Obsidian: Failed to push character sheet stats:', sheetErr);
+				}
+			}
+		}
+
 		new Notice(`Guild Obsidian: Successfully pushed character updates for "${updateData.name || characterId}"`);
 		return true;
 	} catch (err: unknown) {
@@ -601,7 +695,7 @@ function getNumericValue(obj: Record<string, unknown>, keys: string[]): number |
 }
 
 function extractPlayerName(character: GuildCharacter): string | undefined {
-	const c = character as Record<string, unknown>;
+	const c = character as unknown as Record<string, unknown>;
 	const candidates = [
 		c.player,
 		c.playerName,

@@ -17,6 +17,7 @@ A standard Obsidian plugin project contains the following essential files:
 ```text
 guild-obsidian/
 ├── .agents/                      # Local Antigravity custom rules/skills
+├── API.md                        # READ-ONLY: External API spec mirrored from void-guild
 ├── src/                          # TypeScript source files
 │   ├── main.ts                   # Plugin entry point (extends Plugin)
 │   ├── settings.ts               # Plugin settings interface & settings tab
