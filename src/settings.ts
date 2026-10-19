@@ -265,7 +265,7 @@ export class GuildObsidianSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Session Filename Format')
-			.setDesc('Pattern for session note filenames. Placeholders: {date}, {world}, {system}, {id}.')
+			.setDesc('Pattern for session note filenames. Placeholders: {date} (real-world date), {inGameDate} / {inWorldDate} (calendar date), {world}, {system}, {id}.')
 			.addText(text => text
 				.setPlaceholder('{date} {world}')
 				.setValue(this.plugin.settings.filenameFormat)
